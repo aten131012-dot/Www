@@ -1,0 +1,841 @@
+-- NEXORA | TITAN TV MAN (1/8)
+local Players=game:GetService("Players")
+local TweenService=game:GetService("TweenService")
+local Lighting=game:GetService("Lighting")
+local RunService=game:GetService("RunService")
+local UIS=game:GetService("UserInputService")
+local Debris=game:GetService("Debris")
+local player=Players.LocalPlayer
+local cam=workspace.CurrentCamera
+local C=Color3.fromRGB
+local rad=math.rad
+
+local HIP=12
+local CAMY=8
+-- ใส่ rbxassetid://เลข ของคุณเองได้ ถ้าเว้นว่างจะไม่มีเสียง
+local SND={
+	fog="rbxasset://sounds/Rocket whoosh 01.mp3",
+	boom="rbxasset://sounds/impact_explosion_03.mp3",
+	roar="rbxasset://sounds/uuhhh.mp3",
+	step="rbxasset://sounds/action_footsteps_plastic.mp3",
+	slash="rbxasset://sounds/swordslash.wav",
+	glitch="rbxasset://sounds/electronicpingshort.wav",
+}
+local BLACK,SUIT,GLOVE=C(10,10,13),C(20,20,26),C(38,38,46)
+local WHITE,PURPLE,BRONZE=C(255,255,255),C(170,70,255),C(140,100,55)
+
+local R={joints={},parts={}}
+local S={active=false,busy=false,saved={},old={},conn=nil}
+local act={name=nil,t=0,dur=1}
+
+local function sfx(id,vol,speed)
+	if not id or id=="" then return end
+	local s=Instance.new("Sound")
+	s.SoundId=id
+	s.Volume=vol or 1
+	s.PlaybackSpeed=speed or 1
+	s.Parent=workspace
+	s:Play()
+	Debris:AddItem(s,8)
+end
+
+local function tw(o,t,p,style)
+	local x=TweenService:Create(o,TweenInfo.new(t,style or Enum.EasingStyle.Sine),p)
+	x:Play()
+	return x
+end-- NEXORA (1b)
+local LANG="TH"
+local VOICE_ID="" -- ใส่ rbxassetid://เสียงพูดของคุณเอง ถ้าต้องการแทนเสียงสังเคราะห์
+local TXT={
+	TH={transform="แปลงร่าง",cancel="ยกเลิก",slash="ฟัน",roar="คำราม",
+		load="คุณได้รันสคริปต์ค่าย NEXORA",
+		l1="กำลังโหลดโมเดล...",l2="กำลังโหลดเสียง...",
+		l3="กำลังเตรียมหมอกดำ...",l4="พร้อมแล้ว"},
+	EN={transform="Transform",cancel="Cancel",slash="Slash",roar="Roar",
+		load="You are running a script by NEXORA",
+		l1="Loading model...",l2="Loading sounds...",
+		l3="Preparing black fog...",l4="Ready"},
+}
+local function T(k) return TXT[LANG][k] end
+
+local V_ARRIVE={en="I have arrived.",th="ข้ามาถึงแล้ว"}
+local V_ROAR={en="Your world will fall silent.",th="โลกของพวกเจ้าจะเงียบงัน"}
+local V_END={en="Titan TV Man is here.",th="ไททัน ทีวีแมน อยู่ที่นี่แล้ว"}
+
+local subLbl
+local function subtitle(text,dur)
+	local pg=player:WaitForChild("PlayerGui")
+	if not subLbl or not subLbl.Parent then
+		local g=Instance.new("ScreenGui")
+		g.Name="NexoraSub"
+		g.ResetOnSpawn=false
+		g.DisplayOrder=50
+		g.Parent=pg
+		subLbl=Instance.new("TextLabel")
+		subLbl.AnchorPoint=Vector2.new(0.5,1)
+		subLbl.Position=UDim2.new(0.5,0,0.92,0)
+		subLbl.Size=UDim2.new(0.8,0,0,40)
+		subLbl.BackgroundColor3=C(0,0,0)
+		subLbl.BackgroundTransparency=0.4
+		subLbl.TextColor3=C(220,170,255)
+		subLbl.Font=Enum.Font.GothamBold
+		subLbl.TextSize=22
+		subLbl.TextWrapped=true
+		subLbl.Parent=g
+	end
+	subLbl.Text=text
+	subLbl.Visible=true
+	local id=os.clock()
+	subLbl:SetAttribute("id",id)
+	task.delay(dur,function()
+		if subLbl and subLbl:GetAttribute("id")==id then subLbl.Visible=false end
+	end)
+end
+
+-- เสียงพูดอังกฤษทุ้มลึก (ใช้ TTS ของ Roblox + ลดพิตช์)
+local function speak(v)
+	local dur=#v.en*0.075+0.8
+	R.talk=os.clock()+dur
+	subtitle(LANG=="TH" and v.th or v.en,dur+0.6)
+	task.spawn(function()
+		if VOICE_ID~="" then sfx(VOICE_ID,2,1) return end
+		local ok=pcall(function()
+			local tts=Instance.new("AudioTextToSpeech")
+			tts.Text=v.en
+			tts.VoiceId="1"
+			tts.Parent=workspace
+			local ps=Instance.new("AudioPitchShifter")
+			ps.Pitch=0.6
+			ps.Parent=workspace
+			local out=Instance.new("AudioDeviceOutput")
+			out.Parent=workspace
+			local w1=Instance.new("Wire")
+			w1.SourceInstance=tts
+			w1.TargetInstance=ps
+			w1.Parent=workspace
+			local w2=Instance.new("Wire")
+			w2.SourceInstance=ps
+			w2.TargetInstance=out
+			w2.Parent=workspace
+			for _,x in ipairs({tts,ps,out,w1,w2}) do Debris:AddItem(x,dur+5) end
+			local t0=os.clock()
+			repeat task.wait(0.1) until tts.TimeLength>0 or os.clock()-t0>3
+			tts:Play()
+		end)
+		if not ok then sfx(SND.glitch,1,0.4) end
+	end)
+end-- (2/8)
+local function limb(name,size,color,mat,parent,c0,c1,class)
+	local p=Instance.new(class or "Part")
+	p.Name=name
+	p.Size=size
+	p.Color=color
+	p.Material=mat or Enum.Material.SmoothPlastic
+	p.Massless=true
+	p.CanCollide=false
+	p.CanQuery=false
+	p.CanTouch=false
+	p.Transparency=1
+	p.Parent=R.model
+	local w=Instance.new("Weld")
+	w.Name=name.."_J"
+	w.Part0=parent
+	w.Part1=p
+	w.C0=c0
+	w.C1=c1 or CFrame.new()
+	w.Parent=p
+	R.joints[name]=w
+	R.parts[name]=p
+	return p
+end
+
+local function buildLegs(base)
+	local M=Enum.Material
+	limb("Pelvis",Vector3.new(8.4,2.4,4.6),SUIT,M.Fabric,base,CFrame.new(0,12.2,0))
+	limb("Belt",Vector3.new(9,0.8,5),GLOVE,M.Metal,R.parts.Pelvis,CFrame.new(0,1,0))
+	limb("Buckle",Vector3.new(1.6,1.2,0.3),BRONZE,M.Metal,R.parts.Belt,CFrame.new(0,0,-2.55))
+	for _,s in ipairs({-1,1}) do
+		local n=s<0 and "L" or "R"
+		local u=limb("ULeg"..n,Vector3.new(3.3,6,3.5),SUIT,M.Fabric,base,CFrame.new(s*2.3,12,0),CFrame.new(0,3,0))
+		local l=limb("LLeg"..n,Vector3.new(3.1,6,3.3),BLACK,M.Fabric,u,CFrame.new(0,-3,0),CFrame.new(0,3,0))
+		limb("Boot"..n,Vector3.new(3.5,1.9,5.4),BLACK,M.Metal,l,CFrame.new(0,-2.05,-0.9))
+		limb("Knee"..n,Vector3.new(3.4,1.4,0.5),GLOVE,M.Metal,l,CFrame.new(0,2.8,-1.7))
+	end
+	local function panel(n,w,h,d,x,z)
+		limb(n,Vector3.new(w,h,d),SUIT,M.Fabric,base,CFrame.new(x,13.4,z),CFrame.new(0,h/2,0))
+	end
+	panel("CoatFL",4.2,9.5,0.6,-2.3,-2.6)
+	panel("CoatFR",4.2,9.5,0.6,2.3,-2.6)
+	panel("CoatB",9.4,10.2,0.6,0,2.6)
+	panel("CoatSL",0.6,8.6,4.8,-4.8,0)
+	panel("CoatSR",0.6,8.6,4.8,4.8,0)
+end-- (3) ใหม่
+local function buildTorso()
+	local M=Enum.Material
+	local P=R.parts
+	local T=limb("Torso",Vector3.new(10,8.6,5),SUIT,M.Fabric,P.Pelvis,CFrame.new(0,1.2,0),CFrame.new(0,-4.3,0))
+	limb("Collar",Vector3.new(7.4,1.4,5.8),BLACK,M.Metal,T,CFrame.new(0,4.4,0))
+	limb("Back",Vector3.new(7.4,7,1.8),BLACK,M.Metal,T,CFrame.new(0,0.4,3.4))
+	limb("ChestFrame",Vector3.new(3.6,2.4,0.3),BLACK,M.Metal,T,CFrame.new(0,-2.4,-2.55))
+	limb("ChestScreen",Vector3.new(2.9,1.8,0.2),WHITE,M.Neon,T,CFrame.new(0,-2.4,-2.75))
+	-- เฟือง + ครีบ + แกนพลังงานม่วง
+	local g0=CFrame.new(0,1.7,-2.6)*CFrame.Angles(0,rad(90),0)
+	local G=limb("Gear",Vector3.new(0.5,4.4,4.4),BRONZE,M.Metal,T,g0)
+	G.Shape=Enum.PartType.Cylinder
+	R.gear0=g0
+	local gi=limb("GearIn",Vector3.new(0.6,3.1,3.1),BLACK,M.Metal,G,CFrame.new(0.1,0,0))
+	gi.Shape=Enum.PartType.Cylinder
+	limb("Bar1",Vector3.new(0.7,4,0.35),BRONZE,M.Metal,G,CFrame.new(0.15,0,0))
+	limb("Bar2",Vector3.new(0.7,0.35,4),BRONZE,M.Metal,G,CFrame.new(0.15,0,0))
+	for i=0,7 do
+		local ang=i*math.pi/4
+		limb("Fin"..i,Vector3.new(0.4,1.8,0.5),C(60,55,65),M.Metal,G,
+			CFrame.new(0.1,math.cos(ang)*2.6,math.sin(ang)*2.6)*CFrame.Angles(ang,0,0))
+	end
+	local core=limb("Core",Vector3.new(1.8,1.8,1.8),PURPLE,M.Neon,G,CFrame.new(0.55,0,0))
+	core.Shape=Enum.PartType.Ball
+	local l=Instance.new("PointLight")
+	l.Color=PURPLE
+	l.Range=22
+	l.Brightness=2
+	l.Parent=core
+	R.coreLight=l
+	-- บ่าใหญ่ + หนามยาวด้านหลัง
+	for _,s in ipairs({-1,1}) do
+		local n=s<0 and "L" or "R"
+		limb("Pauld"..n,Vector3.new(5,1.6,5.2),BLACK,M.Metal,T,CFrame.new(s*6,4,0)*CFrame.Angles(0,0,-s*0.2))
+		for i=0,4 do
+			local h=20-i*2.2
+			limb("LSpike"..n..i,Vector3.new(0.7,h,1.3),BLACK,M.Metal,T,
+				CFrame.new(s*(2.4+i*1.2),4.3,3.8)*CFrame.Angles(rad(10),0,-s*(0.22+i*0.17)),
+				CFrame.new(0,-h/2,0),"WedgePart")
+		end
+	end
+end-- (4) ใหม่
+local function buildHead()
+	local M=Enum.Material
+	local H=limb("Head",Vector3.new(10,7,6),BLACK,M.Metal,R.parts.Torso,CFrame.new(0,4.4,0),CFrame.new(0,-3.5,0))
+	limb("Crown",Vector3.new(10.6,0.8,6.6),BLACK,M.Metal,H,CFrame.new(0,3.5,0))
+	for i=0,4 do
+		limb("TopVent"..i,Vector3.new(9.4-i*0.7,0.35,5.4),BLACK,M.Metal,H,
+			CFrame.new(0,4.1+i*0.4,0.3)*CFrame.Angles(0,0,rad((i-2)*2.5)))
+	end
+	limb("Ant1",Vector3.new(0.15,3,0.15),GLOVE,M.Metal,H,CFrame.new(-1.5,6.2,0.5))
+	limb("Ant2",Vector3.new(0.15,4,0.15),GLOVE,M.Metal,H,CFrame.new(1.8,6.7,0.5))
+	local sc=limb("Screen",Vector3.new(8,5.2,0.2),WHITE,M.Neon,H,CFrame.new(0,-0.1,-3.05))
+	limb("BarL",Vector3.new(0.4,4.8,0.25),WHITE,M.Neon,H,CFrame.new(-4.5,-0.1,-3.05))
+	limb("BarR",Vector3.new(0.4,4.8,0.25),WHITE,M.Neon,H,CFrame.new(4.5,-0.1,-3.05))
+	local l=Instance.new("PointLight")
+	l.Color=C(230,210,255)
+	l.Range=30
+	l.Brightness=1.5
+	l.Parent=sc
+	for _,s in ipairs({-1,1}) do
+		local n=s<0 and "L" or "R"
+		limb("Flap"..n,Vector3.new(0.8,5.6,5),BLACK,M.Metal,H,CFrame.new(s*5.3,0.2,0.2))
+		limb("Brace"..n,Vector3.new(3.6,1,1.6),BLACK,M.Metal,H,CFrame.new(s*6.8,-0.6,0.8))
+		local rot=CFrame.Angles(0,-s*0.7,-s*0.35)
+		local f=limb("SideTV"..n,Vector3.new(4.6,3.4,0.6),BLACK,M.Metal,H,CFrame.new(s*9,-0.2,0.3)*rot)
+		limb("SideScr"..n,Vector3.new(4,2.8,0.2),C(235,225,255),M.Neon,f,CFrame.new(0,0,-0.4))
+	end
+	for i=-2,2 do
+		local h=7-math.abs(i)
+		limb("HSpike"..i,Vector3.new(0.5,h,1),BLACK,M.Metal,H,
+			CFrame.new(i*1.4,3.4,2.8)*CFrame.Angles(rad(15),0,-i*0.14),
+			CFrame.new(0,-h/2,0),"WedgePart")
+	end
+end-- (4b) หน้าบนจอ: calm / smirk / mad / blank
+local function buildFace()
+	local sc=R.parts.Screen
+	local g=Instance.new("SurfaceGui")
+	g.Face=Enum.NormalId.Front
+	g.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize
+	g.CanvasSize=Vector2.new(800,520)
+	g.LightInfluence=0
+	g.Enabled=false
+	g.Parent=sc
+	R.faceGui=g
+	R.faces={}
+	local BK=C(0,0,0)
+	local function fr(p,x,y,w,h,col,rot,round)
+		local f=Instance.new("Frame")
+		f.AnchorPoint=Vector2.new(0.5,0.5)
+		f.Position=UDim2.fromScale(x,y)
+		f.Size=UDim2.fromScale(w,h)
+		f.BackgroundColor3=col
+		f.BorderSizePixel=0
+		f.Rotation=rot or 0
+		if round then Instance.new("UICorner",f).CornerRadius=UDim.new(round,0) end
+		f.Parent=p
+		return f
+	end
+	local function new(name)
+		local f=Instance.new("Frame")
+		f.Size=UDim2.fromScale(1,1)
+		f.BackgroundTransparency=1
+		f.Visible=false
+		f.Parent=g
+		R.faces[name]=f
+		return f
+	end
+	-- calm (หน้าเรียบเหมือนภาพแรก)
+	local a=new("calm")
+	local gr=C(60,60,80)
+	fr(a,0.44,0.52,0.05,0.018,gr)
+	fr(a,0.53,0.52,0.05,0.018,gr)
+	fr(a,0.485,0.6,0.07,0.014,gr)
+	-- smirk (ยิ้มกวน เหมือนภาพที่ 2)
+	local b=new("smirk")
+	fr(b,0.3,0.2,0.22,0.04,BK,-7,0.5)
+	fr(b,0.7,0.2,0.22,0.04,BK,9,0.5)
+	for _,x in ipairs({0.3,0.7}) do
+		local e=fr(b,x,0.34,0.2,0.09,WHITE,0,0.5)
+		local st=Instance.new("UIStroke",e)
+		st.Thickness=4
+		st.Color=BK
+		fr(e,0.5,0.55,0.34,0.8,BK,0,0.5)
+		fr(b,x,0.3,0.22,0.02,BK,0,0.5)
+	end
+	local m=fr(b,0.5,0.53,0.6,0.26,WHITE,0,0.5)
+	m.AnchorPoint=Vector2.new(0.5,0)
+	local ms=Instance.new("UIStroke",m)
+	ms.Thickness=6
+	ms.Color=BK
+	R.mouthG=m
+	local cv=fr(b,0.5,0.6,0.7,0.13,WHITE)
+	cv.ZIndex=2
+	local lip=fr(b,0.5,0.664,0.6,0.012,BK)
+	lip.ZIndex=3
+	-- mad (คำราม)
+	local d=new("mad")
+	fr(d,0.3,0.24,0.24,0.06,BK,24,0.5)
+	fr(d,0.7,0.24,0.24,0.06,BK,-24,0.5)
+	fr(d,0.3,0.4,0.07,0.1,BK,0,0.5)
+	fr(d,0.7,0.4,0.07,0.1,BK,0,0.5)
+	local mm=fr(d,0.5,0.7,0.5,0.22,BK,0,0.5)
+	R.mouthM=mm
+	fr(d,0.5,0.62,0.42,0.04,WHITE,0,0.2)
+	new("blank")
+
+	R.setFace=function(n)
+		for k,v in pairs(R.faces) do v.Visible=(k==n) end
+	end
+	R.setFace("calm")
+	-- ปากขยับตอนพูด
+	task.spawn(function()
+		while sc.Parent do
+			local t=os.clock()
+			if t<(R.talk or 0) then
+				local k=math.abs(math.sin(t*13))
+				R.mouthG.Size=UDim2.fromScale(0.6,0.2+0.18*k)
+				R.mouthM.Size=UDim2.fromScale(0.5,0.12+0.2*k)
+			else
+				R.mouthG.Size=UDim2.fromScale(0.6,0.26)
+				R.mouthM.Size=UDim2.fromScale(0.5,0.22)
+			end
+			task.wait()
+		end
+	end)
+end-- (5) ใหม่
+local function buildArms()
+	local M=Enum.Material
+	local T=R.parts.Torso
+	for _,s in ipairs({-1,1}) do
+		local n=s<0 and "L" or "R"
+		local u=limb("Arm"..n,Vector3.new(3.4,5.4,3.6),SUIT,M.Fabric,T,CFrame.new(s*5.9,3.6,0),CFrame.new(0,2.7,0))
+		local f=limb("Fore"..n,Vector3.new(3.2,5,3.4),BLACK,M.Fabric,u,CFrame.new(0,-2.7,0),CFrame.new(0,2.5,0))
+		limb("Cuff"..n,Vector3.new(3.6,0.9,3.8),GLOVE,M.Metal,f,CFrame.new(0,-2.2,0))
+		limb("Hand"..n,Vector3.new(3.2,3,3.2),GLOVE,M.Metal,f,CFrame.new(0,-3.7,0))
+		-- ดาบม่วง
+		local bc=CFrame.new(s*2.7,-5.5,-0.4)*CFrame.Angles(rad(12),0,0)
+		local b=limb("Blade"..n,Vector3.new(0.4,11,2.6),C(120,110,150),M.Metal,f,bc)
+		limb("BladeGlow"..n,Vector3.new(0.45,10,1.2),PURPLE,M.Neon,b,CFrame.new(0,0,0))
+		limb("BladeTip"..n,Vector3.new(0.4,2.6,2.6),C(120,110,150),M.Metal,b,
+			CFrame.new(0,-5.5,0)*CFrame.Angles(rad(45),0,0))
+		local tg=limb("TipGlow"..n,Vector3.new(0.45,1.5,1.5),PURPLE,M.Neon,b,
+			CFrame.new(0,-5.5,0)*CFrame.Angles(rad(45),0,0))
+		limb("Guard"..n,Vector3.new(0.8,0.6,3.4),GLOVE,M.Metal,b,CFrame.new(0,5.6,0))
+		local l=Instance.new("PointLight")
+		l.Color=PURPLE
+		l.Range=12
+		l.Brightness=2
+		l.Parent=tg
+	end
+end
+
+local function buildTitan(root)
+	R.joints,R.parts={},{}
+	R.model=Instance.new("Model")
+	R.model.Name="TitanTVMan"
+	local gy=-(HIP+root.Size.Y/2)
+	local base=limb("Base",Vector3.new(1,1,1),BLACK,nil,root,CFrame.new(0,gy,0))
+	buildLegs(base)
+	buildTorso()
+	buildHead()
+	buildFace()
+	buildArms()
+	for _,d in ipairs(R.model:GetDescendants()) do
+		if d:IsA("Light") then d.Enabled=false end
+	end
+	R.model.Parent=workspace
+	return R.model
+end-- (6/8)
+local function glitch()
+	local sc=R.parts.Screen
+	if not sc then return end
+	sfx(SND.glitch,0.5,0.7)
+	for _=1,7 do
+		if not sc.Parent then return end
+		sc.Color=({C(255,255,255),C(120,120,140),C(200,40,255),C(0,0,0)})[math.random(4)]
+		task.wait(0.05)
+	end
+	sc.Color=WHITE
+end
+
+local function slashAng(k)
+	if k<0.3 then return -2.3*(k/0.3)
+	elseif k<0.5 then return -2.3+4.0*((k-0.3)/0.2)
+	else return 1.7*(1-(k-0.5)/0.5) end
+end
+
+local ph,sgn,lastG=0,1,os.clock()
+local function animate(root,hum)
+	if S.conn then S.conn:Disconnect() end
+	S.conn=RunService.RenderStepped:Connect(function(dt)
+		if not R.model or not R.model.Parent then return end
+		local J,P=R.joints,R.parts
+		local t=os.clock()
+		local v=root.AssemblyLinearVelocity
+		local sp=Vector3.new(v.X,0,v.Z).Magnitude
+		local a=math.clamp(sp/22,0,1)
+		ph=ph+dt*(1.5+sp*0.2)
+		local s,c=math.sin(ph),math.cos(ph)
+		-- ขา
+		J.ULegL.C0=CFrame.new(-2.3,12,0)*CFrame.Angles(s*0.6*a,0,0)
+		J.ULegR.C0=CFrame.new(2.3,12,0)*CFrame.Angles(-s*0.6*a,0,0)
+		J.LLegL.C0=CFrame.new(0,-3,0)*CFrame.Angles(-math.max(0,c)*0.9*a,0,0)
+		J.LLegR.C0=CFrame.new(0,-3,0)*CFrame.Angles(-math.max(0,-c)*0.9*a,0,0)
+		J.Pelvis.C0=CFrame.new(0,12.2+math.abs(s)*0.35*a+math.sin(t*1.5)*0.05,0)
+		-- แขน (ค่าปกติ)
+		local aL,aR=-s*0.5*a,s*0.5*a
+		local zL,zR=-0.1+math.sin(t*1.5)*0.02,0.1-math.sin(t*1.5)*0.02
+		local eL,eR=0.25+0.25*a,0.25+0.25*a
+		local ht,tt,ty=0,0,0
+		if act.name then
+			act.t=act.t+dt
+			local k=act.t/act.dur
+			if k>=1 then
+				act.name=nil
+			elseif act.name=="slash" then
+				aR=slashAng(k)
+				aL=slashAng(math.clamp((k-0.2)/0.8,0,1))
+				eL,eR=0.1,0.1
+				ty=-math.sin(k*math.pi)*0.5
+			else
+				local b=math.sin(k*math.pi)
+				aL,aR=-0.3*b,-0.3*b
+				zL,zR=-1.1*b,1.1*b
+				eL,eR=0.4*b,0.4*b
+				ht,tt=0.55*b,0.2*b
+			end
+		end
+		J.ArmL.C0=CFrame.new(-5.9,3.6,0)*CFrame.Angles(aL,0,zL)
+		J.ArmR.C0=CFrame.new(5.9,3.6,0)*CFrame.Angles(aR,0,zR)
+		J.ForeL.C0=CFrame.new(0,-2.7,0)*CFrame.Angles(eL,0,0)
+		J.ForeR.C0=CFrame.new(0,-2.7,0)*CFrame.Angles(eR,0,0)
+		J.Torso.C0=CFrame.new(0,1.2+math.sin(t*1.5)*0.08,0)*CFrame.Angles(-0.07*a+tt,s*0.1*a+ty,0)
+		J.Head.C0=CFrame.new(0,4.4,0)*CFrame.Angles(ht+math.sin(t*0.7)*0.03,math.sin(t*0.5)*0.07,0)
+		-- โค้ทพลิ้ว
+		local sw=math.sin(t*2)*0.03
+		J.CoatFL.C0=CFrame.new(-2.3,13.4,-2.6)*CFrame.Angles(math.max(0,s)*0.55*a+sw,0,0)
+		J.CoatFR.C0=CFrame.new(2.3,13.4,-2.6)*CFrame.Angles(math.max(0,-s)*0.55*a+sw,0,0)
+		J.CoatB.C0=CFrame.new(0,13.4,2.6)*CFrame.Angles(-0.1-a*0.4-sw,0,0)
+		J.CoatSL.C0=CFrame.new(-4.8,13.4,0)*CFrame.Angles(0,0,-0.06-a*0.15-sw)
+		J.CoatSR.C0=CFrame.new(4.8,13.4,0)*CFrame.Angles(0,0,0.06+a*0.15+sw)
+		-- แกนพลังงานเต้น เฟืองหมุน ดาบเรืองแสง
+		local cs=1.6+0.2*math.sin(t*4)
+		P.Core.Size=Vector3.new(cs,cs,cs)
+		R.coreLight.Range=22+math.sin(t*4)*4
+		J.Gear.C0=R.gear0*CFrame.Angles(t*1.2,0,0)
+		P.BladeGlowL.Transparency=0.15+0.15*math.sin(t*5)
+		P.BladeGlowR.Transparency=0.15+0.15*math.sin(t*5+1)
+		-- จอกระตุกสุ่ม
+		if t-lastG>3+math.random()*3 then
+			lastG=t
+			task.spawn(glitch)
+		end
+		-- เสียงฝีเท้า + กล้องสั่น
+		local sg=s>=0 and 1 or -1
+		if sg~=sgn then
+			sgn=sg
+			if a>0.35 then
+				sfx(SND.step,0.7,0.5)
+				hum.CameraOffset=Vector3.new(0,CAMY-0.35,0)
+				tw(hum,0.2,{CameraOffset=Vector3.new(0,CAMY,0)})
+			end
+		end
+	end)
+end-- (7/8)
+local function playAction(name,force)
+	if act.name or (not force and not S.active) then return end
+	act.name=name
+	act.t=0
+	if name=="slash" then
+		act.dur=1.1
+		task.delay(0.33,function() sfx(SND.slash,1,0.8) end)
+		task.delay(0.55,function() sfx(SND.slash,1,0.7) end)
+	else
+		act.dur=2.6
+		sfx(SND.roar,2,0.55)
+		sfx(SND.boom,1,0.8)
+		for i=0,3 do
+			task.delay(i*0.6,function() task.spawn(glitch) end)
+		end
+		if R.coreLight then
+			tw(R.coreLight,0.6,{Brightness=8})
+			task.delay(1.8,function()
+				if R.coreLight then tw(R.coreLight,0.8,{Brightness=2}) end
+			end)
+		end
+		if not force then
+			task.spawn(function()
+				local ch=player.Character
+				local hum=ch and ch:FindFirstChildOfClass("Humanoid")
+				local t0=os.clock()
+				while hum and os.clock()-t0<2 do
+					hum.CameraOffset=Vector3.new(math.random(-8,8)/30,CAMY+math.random(-8,8)/30,0)
+					task.wait()
+				end
+				if hum then hum.CameraOffset=Vector3.new(0,CAMY,0) end
+			end)
+		end
+	end
+end-- (8a)
+local function hideChar(char,hide)
+	for _,d in ipairs(char:GetDescendants()) do
+		if (d:IsA("BasePart") or d:IsA("Decal")) and d.Name~="HumanoidRootPart" then
+			if hide then
+				S.saved[d]=d.Transparency
+				d.Transparency=1
+			elseif S.saved[d] then
+				d.Transparency=S.saved[d]
+			end
+		end
+	end
+end
+
+local function ring(pos,delay,big)
+	task.delay(delay,function()
+		local r=Instance.new("Part")
+		r.Shape=Enum.PartType.Cylinder
+		r.Anchored=true
+		r.CanCollide=false
+		r.CanQuery=false
+		r.Material=Enum.Material.Neon
+		r.Color=PURPLE
+		r.Size=Vector3.new(0.4,2,2)
+		r.CFrame=CFrame.new(pos+Vector3.new(0,0.5,0))*CFrame.Angles(0,0,rad(90))
+		r.Parent=workspace
+		tw(r,1.4,{Size=Vector3.new(0.4,big,big),Transparency=1})
+		Debris:AddItem(r,1.6)
+	end)
+end
+
+local function emitter(parent,tex,color,size,rate,life,speed,light)
+	local e=Instance.new("ParticleEmitter")
+	e.Texture=tex
+	e.Color=ColorSequence.new(color)
+	e.Size=NumberSequence.new(size[1],size[2])
+	e.Transparency=NumberSequence.new({
+		NumberSequenceKeypoint.new(0,1),
+		NumberSequenceKeypoint.new(0.2,light and 0 or 0.25),
+		NumberSequenceKeypoint.new(1,1)})
+	e.Rate=rate
+	e.Lifetime=NumberRange.new(life,life+1)
+	e.Speed=NumberRange.new(speed,speed*2)
+	e.SpreadAngle=Vector2.new(180,180)
+	e.Acceleration=Vector3.new(0,6,0)
+	e.RotSpeed=NumberRange.new(-40,40)
+	e.LightEmission=light and 1 or 0
+	e.Parent=parent
+	return e
+end-- (8a ต่อ) คัทซีน
+local function transform()
+	local char=player.Character
+	local hum=char and char:FindFirstChildOfClass("Humanoid")
+	local root=char and char:FindFirstChild("HumanoidRootPart")
+	if not hum or not root or S.busy then return end
+	S.busy=true
+	local o=S.old
+	o.hip,o.speed=hum.HipHeight,hum.WalkSpeed
+	o.zmax,o.zmin,o.coff=player.CameraMaxZoomDistance,player.CameraMinZoomDistance,hum.CameraOffset
+	o.nd=hum.DisplayDistanceType
+	local fog={Lighting.FogColor,Lighting.FogStart,Lighting.FogEnd,Lighting.Ambient,Lighting.OutdoorAmbient,Lighting.Brightness}
+	local f=root.CFrame.LookVector*Vector3.new(1,0,1)
+	f=f.Magnitude>0 and f.Unit or Vector3.new(0,0,-1)
+	local ground=root.Position-Vector3.new(0,o.hip+root.Size.Y/2,0)
+	root.Anchored=true
+
+	-- 1) หมอกดำ
+	sfx(SND.fog,1.2,0.6)
+	local cc=Instance.new("ColorCorrectionEffect")
+	cc.Parent=Lighting
+	tw(Lighting,2,{FogColor=C(0,0,0),FogStart=0,FogEnd=90,Ambient=C(10,10,14),OutdoorAmbient=C(10,10,14),Brightness=0.4})
+	tw(cc,2,{Brightness=-0.15,Contrast=0.25,Saturation=-0.4})
+	cam.CameraType=Enum.CameraType.Scriptable
+	cam.CFrame=CFrame.lookAt(ground+f*34+Vector3.new(8,3,0),ground+Vector3.new(0,6,0))
+	local sp=Instance.new("Part")
+	sp.Anchored=true
+	sp.CanCollide=false
+	sp.CanQuery=false
+	sp.Transparency=1
+	sp.Size=Vector3.new(26,1,26)
+	sp.Position=ground
+	sp.Parent=workspace
+	local smoke=emitter(sp,"rbxasset://textures/particles/smoke_main.dds",C(0,0,0),{12,26},70,3,5,false)
+	local sparks=emitter(sp,"rbxasset://textures/particles/sparkles_main.dds",PURPLE,{0.8,0},45,1.2,12,true)
+	task.wait(2)
+
+	-- 2) ร่างปรากฏจากเท้าขึ้นหัว + เสียงพูดแรก
+	root.CFrame=root.CFrame+Vector3.new(0,HIP-o.hip,0)
+	hum.HipHeight=HIP
+	local model=buildTitan(root)
+	hideChar(char,true)
+	hum.DisplayDistanceType=Enum.HumanoidDisplayDistanceType.None
+	animate(root,hum)
+	task.wait(0.2)
+	sfx(SND.boom,1.5,0.5)
+	ring(ground,0,70)
+	ring(ground,0.4,110)
+	for _,p in ipairs(model:GetChildren()) do
+		if p:IsA("BasePart") and p.Name~="Base" then
+			local h=math.clamp((p.Position.Y-ground.Y)/30,0,1)
+			task.delay(h*2.2,function()
+				if p.Parent then tw(p,0.5,{Transparency=0}) end
+			end)
+		end
+	end
+	for _,d in ipairs(model:GetDescendants()) do
+		if d:IsA("Light") then d.Enabled=true end
+	end
+	task.delay(2.2,function()
+		if R.faceGui then R.faceGui.Enabled=true end
+	end)
+	tw(cam,3.2,{CFrame=CFrame.lookAt(ground+f*40+Vector3.new(0,14,0),ground+Vector3.new(0,17,0))},Enum.EasingStyle.Quad)
+	task.delay(1.5,function() speak(V_ARRIVE) end)
+	task.wait(3.2)
+
+	-- 3) ซูมหน้าจอ ยิ้มกวน แล้วคำราม
+	R.setFace("smirk")
+	sfx(SND.glitch,1,0.5)
+	tw(cam,1.2,{CFrame=CFrame.lookAt(ground+f*17+Vector3.new(0,25,0),ground+Vector3.new(0,25.5,0))},Enum.EasingStyle.Quint)
+	task.wait(1.5)
+	R.setFace("mad")
+	playAction("roar",true)
+	speak(V_ROAR)
+	local base=cam.CFrame
+	local t0=os.clock()
+	while os.clock()-t0<2.4 do
+		cam.CFrame=base*CFrame.new(math.random(-8,8)/25,math.random(-8,8)/25,0)
+		task.wait()
+	end
+	R.setFace("smirk")
+	tw(cam,1.5,{CFrame=CFrame.lookAt(ground+f*38+Vector3.new(0,12,0),ground+Vector3.new(0,16,0))})
+	speak(V_END)
+	task.wait(2.2)
+
+	-- 4) จบคัทซีน
+	R.setFace("calm")
+	tw(Lighting,2.5,{FogColor=fog[1],FogStart=fog[2],FogEnd=fog[3],Ambient=fog[4],OutdoorAmbient=fog[5],Brightness=fog[6]})
+	tw(cc,2.5,{Brightness=0,Contrast=0,Saturation=0})
+	smoke.Enabled=false
+	sparks.Enabled=false
+	cam.CameraType=Enum.CameraType.Custom
+	cam.CameraSubject=hum
+	root.Anchored=false
+	hum.WalkSpeed=26
+	hum.CameraOffset=Vector3.new(0,CAMY,0)
+	player.CameraMinZoomDistance=30
+	player.CameraMaxZoomDistance=120
+	emitter(R.parts.Base,"rbxasset://textures/particles/smoke_main.dds",C(0,0,0),{8,14},8,2.5,3,false)
+	Debris:AddItem(sp,5)
+	Debris:AddItem(cc,3)
+	S.active=true
+	S.busy=false
+end-- (8b)
+local PG=player:WaitForChild("PlayerGui")
+local function mkGui(name,order)
+	local g=Instance.new("ScreenGui")
+	g.Name=name
+	g.ResetOnSpawn=false
+	g.IgnoreGuiInset=true
+	g.DisplayOrder=order
+	g.Parent=PG
+	return g
+end
+local function style(b)
+	Instance.new("UICorner",b).CornerRadius=UDim.new(0,10)
+	local st=Instance.new("UIStroke",b)
+	st.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+	st.Color=C(0,0,0)
+	st.Thickness=3
+	local gr=Instance.new("UIGradient",b)
+	gr.Color=ColorSequence.new(C(230,0,0),C(25,0,0))
+	gr.Rotation=90
+end
+local function label(p,text,size,pos,font,color)
+	local l=Instance.new("TextLabel")
+	l.BackgroundTransparency=1
+	l.AnchorPoint=Vector2.new(0.5,0.5)
+	l.Position=pos
+	l.Size=UDim2.new(0.9,0,0,size+10)
+	l.Text=text
+	l.TextSize=size
+	l.TextWrapped=true
+	l.Font=font or Enum.Font.GothamBold
+	l.TextColor3=color or WHITE
+	l.Parent=p
+	return l
+end
+
+local function chooseLang(cb)
+	local g=mkGui("NexoraLang",100)
+	local bg=Instance.new("Frame",g)
+	bg.Size=UDim2.fromScale(1,1)
+	bg.BackgroundColor3=C(8,0,0)
+	label(bg,"ภาษา / Language",34,UDim2.fromScale(0.5,0.32))
+	for i,d in ipairs({{"TH","ไทย"},{"EN","English"}}) do
+		local b=Instance.new("TextButton")
+		b.AnchorPoint=Vector2.new(0.5,0.5)
+		b.Position=UDim2.fromScale(0.5,0.48+(i-1)*0.14)
+		b.Size=UDim2.new(0,220,0,56)
+		b.BackgroundColor3=C(200,0,0)
+		b.Text=d[2]
+		b.TextColor3=WHITE
+		b.Font=Enum.Font.GothamBold
+		b.TextSize=22
+		b.Parent=bg
+		style(b)
+		b.MouseButton1Click:Connect(function()
+			LANG=d[1]
+			g:Destroy()
+			cb()
+		end)
+	end
+end
+
+local function loading(cb)
+	local g=mkGui("NexoraLoad",100)
+	local bg=Instance.new("Frame",g)
+	bg.Size=UDim2.fromScale(1,1)
+	bg.BackgroundColor3=C(8,0,0)
+	label(bg,"NEXORA",60,UDim2.fromScale(0.5,0.34),Enum.Font.GothamBlack,C(220,0,0))
+	label(bg,T("load"),22,UDim2.fromScale(0.5,0.46))
+	local st=label(bg,"",16,UDim2.fromScale(0.5,0.66),Enum.Font.Gotham,C(180,180,180))
+	local bar=Instance.new("Frame",bg)
+	bar.AnchorPoint=Vector2.new(0.5,0.5)
+	bar.Position=UDim2.fromScale(0.5,0.58)
+	bar.Size=UDim2.new(0.6,0,0,14)
+	bar.BackgroundColor3=C(35,0,0)
+	Instance.new("UICorner",bar).CornerRadius=UDim.new(1,0)
+	local fill=Instance.new("Frame",bar)
+	fill.Size=UDim2.fromScale(0,1)
+	fill.BackgroundColor3=C(220,0,0)
+	Instance.new("UICorner",fill).CornerRadius=UDim.new(1,0)
+	task.spawn(function()
+		local list={}
+		for _,id in pairs(SND) do
+			local s=Instance.new("Sound")
+			s.SoundId=id
+			table.insert(list,s)
+		end
+		for i,k in ipairs({"l1","l2","l3","l4"}) do
+			st.Text=T(k)
+			tw(fill,0.9,{Size=UDim2.fromScale(i/4,1)})
+			if i==2 then
+				pcall(function() game:GetService("ContentProvider"):PreloadAsync(list) end)
+			end
+			task.wait(1)
+		end
+		task.wait(0.4)
+		for _,s in ipairs(list) do s:Destroy() end
+		g:Destroy()
+		cb()
+	end)
+end-- (8b ต่อ) ปุ่มหลัก
+local function startMain()
+	local gui=mkGui("NexoraTitanTV",10)
+	gui.IgnoreGuiInset=false
+	local function mkBtn(text,y)
+		local b=Instance.new("TextButton")
+		b.AnchorPoint=Vector2.new(1,0.5)
+		b.Position=UDim2.new(1,-8,0.5,y)
+		b.Size=UDim2.new(0,120,0,46)
+		b.BackgroundColor3=C(200,0,0)
+		b.Text=text
+		b.TextColor3=WHITE
+		b.Font=Enum.Font.GothamBold
+		b.TextSize=17
+		b.Parent=gui
+		style(b)
+		return b
+	end
+	local main=mkBtn(T("transform"),0)
+	local bSlash=mkBtn(T("slash"),56)
+	local bRoar=mkBtn(T("roar"),112)
+	bSlash.Visible=false
+	bRoar.Visible=false
+
+	local function cleanup()
+		if S.conn then S.conn:Disconnect() S.conn=nil end
+		if R.model then R.model:Destroy() R.model=nil end
+		R.joints,R.parts={},{}
+		act.name=nil
+		S.saved={}
+		S.active=false
+		S.busy=false
+		main.Text=T("transform")
+		bSlash.Visible=false
+		bRoar.Visible=false
+	end
+
+	local function revert()
+		if S.busy then return end
+		local char=player.Character
+		local hum=char and char:FindFirstChildOfClass("Humanoid")
+		if char then hideChar(char,false) end
+		if hum then
+			hum.HipHeight=S.old.hip or 0
+			hum.WalkSpeed=S.old.speed or 16
+			hum.CameraOffset=S.old.coff or Vector3.new()
+			hum.DisplayDistanceType=S.old.nd or Enum.HumanoidDisplayDistanceType.Viewer
+		end
+		player.CameraMaxZoomDistance=S.old.zmax or 128
+		player.CameraMinZoomDistance=S.old.zmin or 0.5
+		cleanup()
+	end
+
+	main.MouseButton1Click:Connect(function()
+		if S.busy then return end
+		if S.active then
+			revert()
+		else
+			transform()
+			if S.active then
+				main.Text=T("cancel")
+				bSlash.Visible=true
+				bRoar.Visible=true
+			end
+		end
+	end)
+	bSlash.MouseButton1Click:Connect(function() playAction("slash") end)
+	bRoar.MouseButton1Click:Connect(function() playAction("roar") end)
+	UIS.InputBegan:Connect(function(i,gp)
+		if gp then return end
+		if i.KeyCode==Enum.KeyCode.Q then playAction("slash")
+		elseif i.KeyCode==Enum.KeyCode.E then playAction("roar") end
+	end)
+	player.CharacterAdded:Connect(cleanup)
+end
+
+chooseLang(function() loading(startMain) end)
