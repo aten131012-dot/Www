@@ -1,0 +1,1643 @@
+--[[ NEXORA X Evade v2.0 | ก้อนที่ 1: CORE + หน้าหลัก (รันก่อนเสมอ) ]]
+
+local Players            = game:GetService("Players")
+local RunService         = game:GetService("RunService")
+local UserInputService   = game:GetService("UserInputService")
+local TweenService       = game:GetService("TweenService")
+local Stats              = game:GetService("Stats")
+local MarketplaceService = game:GetService("MarketplaceService")
+local Workspace          = game:GetService("Workspace")
+local LocalPlayer        = Players.LocalPlayer
+
+local okEnv, genv = pcall(function() return getgenv() end)
+local ENV = (okEnv and genv) or _G
+if ENV.NX_EVADE and type(ENV.NX_EVADE.Destroy) == "function" then pcall(ENV.NX_EVADE.Destroy) end
+
+local NX = {
+	Version = "2.0.0", Width = 600, Height = 390,
+	ToggleKey = Enum.KeyCode.RightShift,
+	Registry = {}, Settings = { Notify = true }, State = {},
+}
+ENV.NX_EVADE = NX
+
+local THEME = {
+	Bg = Color3.fromRGB(12, 12, 16), Panel = Color3.fromRGB(17, 17, 22),
+	Row = Color3.fromRGB(24, 24, 31), RowHover = Color3.fromRGB(33, 27, 34),
+	Off = Color3.fromRGB(52, 52, 62), Accent = Color3.fromRGB(225, 29, 46),
+	AccentSoft = Color3.fromRGB(255, 72, 90), AccentDark = Color3.fromRGB(110, 14, 26),
+	Stroke = Color3.fromRGB(80, 20, 30), Text = Color3.fromRGB(245, 245, 248),
+	SubText = Color3.fromRGB(150, 150, 168), White = Color3.fromRGB(255, 255, 255),
+}
+NX.THEME = THEME
+
+-- ═══════════ i18n (ไทย / English) ═══════════
+local I18N, Bound, LangCbs = {}, {}, {}
+NX.Lang = "en"
+do
+	local ok, loc = pcall(function() return game:GetService("LocalizationService").RobloxLocaleId end)
+	if ENV.NX_LANG == "th" or ENV.NX_LANG == "en" then
+		NX.Lang = ENV.NX_LANG
+	elseif ok and type(loc) == "string" and loc:sub(1, 2) == "th" then
+		NX.Lang = "th"
+	end
+end
+function NX.i18n(t) for k, v in pairs(t) do I18N[k] = v end end
+function NX.L(key)
+	local e = I18N[key]
+	if not e then return key end
+	return (NX.Lang == "th" and e[2]) or e[1]
+end
+function NX.bindText(inst, key, prop)
+	prop = prop or "Text"
+	inst[prop] = NX.L(key)
+	Bound[#Bound + 1] = { inst, key, prop }
+end
+function NX.onLang(fn) LangCbs[#LangCbs + 1] = fn end
+function NX.setLang(code)
+	NX.Lang = code
+	ENV.NX_LANG = code
+	for i = #Bound, 1, -1 do
+		local b = Bound[i]
+		if b[1].Parent then b[1][b[3]] = NX.L(b[2]) else table.remove(Bound, i) end
+	end
+	for _, fn in ipairs(LangCbs) do pcall(fn, code) end
+end
+
+NX.i18n({
+	tab_home = { "Home", "หน้าหลัก" },
+	grp_main = { "MAIN", "หลัก" }, grp_feat = { "FEATURES", "ฟีเจอร์" }, grp_sys = { "SYSTEM", "ระบบ" },
+	on = { "ON", "เปิด" }, off = { "OFF", "ปิด" },
+	home_map = { "MAP", "แมพ" }, home_char = { "CHARACTER", "ตัวละคร" },
+	home_age = { "Account age", "อายุบัญชี" }, home_days = { "days", "วัน" },
+	home_fps = { "FPS", "FPS" }, home_ping = { "PING", "ปิง" },
+	home_players = { "PLAYERS", "ผู้เล่น" }, home_health = { "HEALTH", "เลือด" },
+	home_lang = { "Language", "ภาษา" }, home_lang_d = { "Choose the menu language", "เลือกภาษาของเมนู" },
+	lang_changed = { "Language: English", "ภาษา: ไทย" },
+	minimized = { "Minimized - tap the cat logo to reopen", "ย่อแล้ว - แตะโลโก้แมวเพื่อเปิดกลับ" },
+	ready = { "NEXORA X Evade is ready", "NEXORA X Evade พร้อมใช้งาน" },
+	all_off = { "All features disabled", "ปิดทุกฟังก์ชันแล้ว" },
+})
+
+-- ═══════════ Utilities ═══════════
+local Maid, Connections, DestroyCbs = {}, {}, {}
+
+local function create(class, props, parent)
+	local inst = Instance.new(class)
+	for k, v in pairs(props) do inst[k] = v end
+	if parent then inst.Parent = parent end
+	return inst
+end
+local function corner(inst, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = (r < 1) and UDim.new(r, 0) or UDim.new(0, r)
+	c.Parent = inst
+	return c
+end
+local function stroke(inst, color, thickness, transparency)
+	local s = Instance.new("UIStroke")
+	s.Color, s.Thickness, s.Transparency = color, thickness or 1, transparency or 0
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = inst
+	return s
+end
+local function tween(inst, time, props, style, dir)
+	local t = TweenService:Create(inst, TweenInfo.new(time, style or Enum.EasingStyle.Quad,
+		dir or Enum.EasingDirection.Out), props)
+	t:Play()
+	return t
+end
+local function getHum()
+	local c = LocalPlayer.Character
+	return c and c:FindFirstChildOfClass("Humanoid")
+end
+local function getRoot()
+	local c = LocalPlayer.Character
+	return c and c:FindFirstChild("HumanoidRootPart")
+end
+local function nextOrder(scroll)
+	local n = (scroll:GetAttribute("n") or 0) + 1
+	scroll:SetAttribute("n", n)
+	return n
+end
+local function label(parent, props)
+	local p = {
+		BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 12,
+		TextColor3 = THEME.Text, TextXAlignment = Enum.TextXAlignment.Left,
+	}
+	for k, v in pairs(props) do p[k] = v end
+	return create("TextLabel", p, parent)
+end
+
+function NX.track(c) Connections[#Connections + 1] = c return c end
+function NX.bind(key, signal, fn)
+	if Maid[key] then Maid[key]:Disconnect() end
+	Maid[key] = signal:Connect(fn)
+end
+function NX.unbind(key)
+	if Maid[key] then Maid[key]:Disconnect() Maid[key] = nil end
+end
+function NX.onDestroy(fn) DestroyCbs[#DestroyCbs + 1] = fn end
+NX.create, NX.corner, NX.stroke, NX.tween = create, corner, stroke, tween
+NX.getHum, NX.getRoot, NX.nextOrder, NX.label = getHum, getRoot, nextOrder, label
+
+-- ═══════════ ScreenGui + Toast ═══════════
+local Gui = create("ScreenGui", {
+	Name = "NEXORA_X_EVADE", ResetOnSpawn = false, IgnoreGuiInset = true,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999,
+})
+do
+	local mounted = false
+	pcall(function()
+		if gethui then Gui.Parent = gethui() mounted = Gui.Parent ~= nil end
+	end)
+	if not mounted then
+		pcall(function() Gui.Parent = game:GetService("CoreGui") mounted = Gui.Parent ~= nil end)
+	end
+	if not mounted then Gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+end
+NX.Gui = Gui
+
+local Toast = create("Frame", {
+	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16),
+	Size = UDim2.fromOffset(280, 34), BackgroundColor3 = THEME.Bg,
+	BackgroundTransparency = 1, Visible = false, ZIndex = 60,
+}, Gui)
+corner(Toast, 12)
+local ToastStroke = stroke(Toast, THEME.Accent, 1.5, 1)
+local ToastText = label(Toast, {
+	Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBold, TextSize = 13,
+	TextTransparency = 1, ZIndex = 61, TextXAlignment = Enum.TextXAlignment.Center,
+})
+local ToastScale = create("UIScale", {}, Toast)
+local toastId = 0
+function NX.notify(msg)
+	if not NX.Settings.Notify then return end
+	toastId += 1
+	local id = toastId
+	ToastText.Text = msg
+	Toast.Visible = true
+	tween(Toast, 0.2, { BackgroundTransparency = 0.1 })
+	tween(ToastStroke, 0.2, { Transparency = 0.2 })
+	tween(ToastText, 0.2, { TextTransparency = 0 })
+	task.delay(1.8, function()
+		if id ~= toastId then return end
+		tween(Toast, 0.25, { BackgroundTransparency = 1 })
+		tween(ToastStroke, 0.25, { Transparency = 1 })
+		tween(ToastText, 0.25, { TextTransparency = 1 })
+		task.delay(0.26, function() if id == toastId then Toast.Visible = false end end)
+	end)
+end
+
+-- ═══════════ แมวโลโก้ ═══════════
+local CatAnimators = {}
+local function makeCat(parent, size, phase)
+	phase = phase or 0
+	local root = create("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(size, size) }, parent)
+	local function ear(x)
+		local e = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(x, 0.26),
+			Size = UDim2.fromScale(0.3, 0.3), Rotation = 45, BackgroundColor3 = THEME.Accent,
+			BorderSizePixel = 0, ZIndex = 1,
+		}, root)
+		corner(e, 0.18)
+		local inner = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = Color3.fromRGB(60, 8, 16),
+			BorderSizePixel = 0, ZIndex = 2,
+		}, e)
+		corner(inner, 0.2)
+		return e
+	end
+	local earL = ear(0.27)
+	ear(0.73)
+	local head = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.58),
+		Size = UDim2.fromScale(0.8, 0.62), BackgroundColor3 = Color3.fromRGB(14, 14, 18),
+		BorderSizePixel = 0, ZIndex = 3,
+	}, root)
+	corner(head, 0.42)
+	stroke(head, THEME.Accent, math.max(1.5, size / 26), 0)
+	local function eye(x)
+		local e = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(x, 0.55),
+			Size = UDim2.fromScale(0.15, 0.2), BackgroundColor3 = THEME.AccentSoft,
+			BorderSizePixel = 0, ZIndex = 4,
+		}, root)
+		corner(e, 0.5)
+		local p = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.3, 0.8), BackgroundColor3 = Color3.fromRGB(10, 0, 0),
+			BorderSizePixel = 0, ZIndex = 5,
+		}, e)
+		corner(p, 0.5)
+		return e
+	end
+	local eyeL, eyeR = eye(0.36), eye(0.64)
+	create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.68),
+		Size = UDim2.fromScale(0.08, 0.05), BackgroundColor3 = Color3.fromRGB(255, 120, 135),
+		BorderSizePixel = 0, ZIndex = 4,
+	}, root)
+	local function whisker(x, y, rot)
+		create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(x, y),
+			Size = UDim2.new(0.2, 0, 0, 1), Rotation = rot, BorderSizePixel = 0,
+			BackgroundColor3 = Color3.fromRGB(210, 210, 220), BackgroundTransparency = 0.35, ZIndex = 4,
+		}, root)
+	end
+	whisker(0.15, 0.66, 8) whisker(0.15, 0.72, -8) whisker(0.85, 0.66, -8) whisker(0.85, 0.72, 8)
+
+	CatAnimators[#CatAnimators + 1] = function(t)
+		local ph = (t + phase) % 4
+		local h = (ph > 3.7 and ph < 3.85) and 0.03 or 0.2
+		eyeL.Size, eyeR.Size = UDim2.fromScale(0.15, h), UDim2.fromScale(0.15, h)
+		local col = THEME.Accent:Lerp(Color3.fromRGB(255, 150, 110), (0.5 + 0.5 * math.sin(t * 3 + phase)) * 0.6)
+		eyeL.BackgroundColor3, eyeR.BackgroundColor3 = col, col
+		if ph > 1.5 and ph < 1.7 then
+			earL.Rotation = 45 - 12 * math.sin((ph - 1.5) / 0.2 * math.pi)
+		else
+			earL.Rotation = 45
+		end
+	end
+	return root
+end
+
+-- ═══════════ ระบบลาก (เมาส์ + ทัช) ═══════════
+local function makeDraggable(handle, target, getScale, onClick)
+	local dragging, moved, dragStart, startPos = false, false, nil, nil
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging, moved = true, false
+			dragStart, startPos = input.Position, target.Position
+			local c
+			c = input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					c:Disconnect()
+					dragging = false
+					if not moved and onClick then onClick() end
+				end
+			end)
+		end
+	end)
+	NX.track(UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			local d = input.Position - dragStart
+			if d.Magnitude > 8 then moved = true end
+			if moved then
+				local s = math.max(getScale(), 0.1)
+				target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X / s,
+					startPos.Y.Scale, startPos.Y.Offset + d.Y / s)
+			end
+		end
+	end))
+end
+
+-- ═══════════ Components ═══════════
+function NX.makeRow(scroll, height, clickable)
+	local row = create(clickable and "TextButton" or "Frame", {
+		Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = THEME.Row,
+		BorderSizePixel = 0, LayoutOrder = nextOrder(scroll),
+	}, scroll)
+	if clickable then row.Text = "" row.AutoButtonColor = false end
+	corner(row, 10)
+	stroke(row, THEME.Stroke, 1, 0.45)
+	return row
+end
+
+function NX.rowTexts(row, nameKey, descKey, rightPad)
+	local n = label(row, {
+		Position = UDim2.fromOffset(12, 7), Size = UDim2.new(1, -rightPad, 0, 18),
+		Font = Enum.Font.GothamBold, TextSize = 14, TextTruncate = Enum.TextTruncate.AtEnd,
+	})
+	NX.bindText(n, nameKey)
+	if descKey then
+		local d = label(row, {
+			Position = UDim2.fromOffset(12, 26), Size = UDim2.new(1, -rightPad, 0, 15),
+			TextSize = 11, TextColor3 = THEME.SubText, TextTruncate = Enum.TextTruncate.AtEnd,
+		})
+		NX.bindText(d, descKey)
+	end
+end
+
+function NX.addSection(scroll, key)
+	local l = label(scroll, {
+		Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.GothamBold,
+		TextColor3 = THEME.AccentSoft, LayoutOrder = nextOrder(scroll),
+	})
+	NX.bindText(l, key)
+end
+
+function NX.addToggle(scroll, nameKey, descKey, callback, opts)
+	local state = false
+	local row = NX.makeRow(scroll, 48, true)
+	NX.rowTexts(row, nameKey, descKey, 76)
+	local switch = create("Frame", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(42, 22), BackgroundColor3 = THEME.Off, BorderSizePixel = 0,
+	}, row)
+	corner(switch, 11)
+	local knob = create("Frame", {
+		Position = UDim2.fromOffset(3, 3), Size = UDim2.fromOffset(16, 16),
+		BackgroundColor3 = THEME.White, BorderSizePixel = 0,
+	}, switch)
+	corner(knob, 8)
+	local function set(v, silent)
+		state = v and true or false
+		tween(switch, 0.2, { BackgroundColor3 = state and THEME.Accent or THEME.Off })
+		tween(knob, 0.2, { Position = state and UDim2.fromOffset(23, 3) or UDim2.fromOffset(3, 3) })
+		local ok, err = pcall(callback, state)
+		if not ok then warn("[NEXORA] " .. nameKey .. ": " .. tostring(err)) end
+		if not silent then
+			NX.notify(NX.L(nameKey) .. "  " .. (state and NX.L("on") or NX.L("off")))
+		end
+	end
+	row.MouseButton1Click:Connect(function() set(not state) end)
+	row.MouseEnter:Connect(function() tween(row, 0.15, { BackgroundColor3 = THEME.RowHover }) end)
+	row.MouseLeave:Connect(function() tween(row, 0.15, { BackgroundColor3 = THEME.Row }) end)
+	if not (opts and opts.noReset) then
+		NX.Registry[#NX.Registry + 1] = {
+			set = set, get = function() return state end, owner = scroll:GetAttribute("owner"),
+		}
+	end
+	return set
+end
+
+function NX.addSlider(scroll, nameKey, min, max, default, step, onChange, suffix)
+	suffix = suffix or ""
+	local value = default
+	local row = NX.makeRow(scroll, 58, false)
+	local n = label(row, {
+		Position = UDim2.fromOffset(12, 7), Size = UDim2.new(1, -90, 0, 18),
+		Font = Enum.Font.GothamBold, TextSize = 14,
+	})
+	NX.bindText(n, nameKey)
+	local valueLabel = label(row, {
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 7),
+		Size = UDim2.fromOffset(70, 18), Font = Enum.Font.GothamBold, TextSize = 13,
+		TextColor3 = THEME.AccentSoft, TextXAlignment = Enum.TextXAlignment.Right,
+	})
+	local trk = create("Frame", {
+		Position = UDim2.new(0, 12, 0, 40), Size = UDim2.new(1, -24, 0, 6),
+		BackgroundColor3 = THEME.Off, BorderSizePixel = 0,
+	}, row)
+	corner(trk, 3)
+	local fill = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = THEME.Accent, BorderSizePixel = 0 }, trk)
+	corner(fill, 3)
+	local knob = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromOffset(14, 14), BackgroundColor3 = THEME.White, BorderSizePixel = 0, ZIndex = 2,
+	}, trk)
+	corner(knob, 7)
+	local hit = create("TextButton", {
+		BackgroundTransparency = 1, Text = "", Position = UDim2.new(0, 0, 0, 28), Size = UDim2.new(1, 0, 0, 30),
+	}, row)
+	local function render(v)
+		local rel = (v - min) / (max - min)
+		fill.Size = UDim2.fromScale(rel, 1)
+		knob.Position = UDim2.fromScale(rel, 0.5)
+		valueLabel.Text = tostring(v) .. suffix
+	end
+	local function setFromX(x)
+		local rel = math.clamp((x - trk.AbsolutePosition.X) / math.max(trk.AbsoluteSize.X, 1), 0, 1)
+		local v = math.floor((min + (max - min) * rel) / step + 0.5) * step
+		v = tonumber(string.format("%.2f", math.clamp(v, min, max)))
+		if v ~= value then
+			value = v
+			render(v)
+			local ok, err = pcall(onChange, v)
+			if not ok then warn("[NEXORA] slider " .. nameKey .. ": " .. tostring(err)) end
+		end
+	end
+	local dragging = false
+	hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			scroll.ScrollingEnabled = false
+			setFromX(input.Position.X)
+			local c
+			c = input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+					scroll.ScrollingEnabled = true
+					c:Disconnect()
+				end
+			end)
+		end
+	end)
+	NX.track(UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			setFromX(input.Position.X)
+		end
+	end))
+	render(default)
+end
+
+function NX.addButton(scroll, nameKey, descKey, labelKey, callback, danger)
+	local row = NX.makeRow(scroll, 48, false)
+	NX.rowTexts(row, nameKey, descKey, 116)
+	local base = danger and THEME.Accent or THEME.AccentDark
+	local btn = create("TextButton", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(90, 28), BackgroundColor3 = base, BorderSizePixel = 0,
+		AutoButtonColor = false, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = THEME.Text,
+	}, row)
+	NX.bindText(btn, labelKey)
+	corner(btn, 8)
+	stroke(btn, THEME.AccentSoft, 1, 0.5)
+	btn.MouseButton1Click:Connect(function()
+		btn.BackgroundColor3 = THEME.AccentSoft
+		tween(btn, 0.25, { BackgroundColor3 = base })
+		local ok, err = pcall(callback)
+		if not ok then warn("[NEXORA] " .. nameKey .. ": " .. tostring(err)) end
+	end)
+end
+
+function NX.addLabel(scroll, key)
+	local row = label(scroll, {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 0,
+		BackgroundColor3 = THEME.Row, BorderSizePixel = 0, RichText = true, TextColor3 = THEME.SubText,
+		TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = nextOrder(scroll),
+	})
+	NX.bindText(row, key)
+	corner(row, 10)
+	stroke(row, THEME.Stroke, 1, 0.45)
+	create("UIPadding", {
+		PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12),
+		PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10),
+	}, row)
+end
+
+-- ═══════════ Window ═══════════
+local W, H = NX.Width, NX.Height
+local DEFAULT_WINDOW_POS = UDim2.fromScale(0.5, 0.5)
+local DEFAULT_LOGO_POS = UDim2.new(0, 16, 0.25, 0)
+local UserScale, BaseScale, WindowOpen = 1, 1, false
+
+local Window = create("CanvasGroup", {
+	Name = "Window", AnchorPoint = Vector2.new(0.5, 0.5), Position = DEFAULT_WINDOW_POS,
+	Size = UDim2.fromOffset(W, H), BackgroundColor3 = THEME.Bg, BorderSizePixel = 0,
+	GroupTransparency = 1, Visible = false, Active = true,
+}, Gui)
+corner(Window, 16)
+stroke(Window, THEME.Accent, 1.5, 0.3)
+create("UIGradient", {
+	Color = ColorSequence.new(Color3.fromRGB(30, 10, 15), Color3.fromRGB(10, 10, 14)), Rotation = 60,
+}, Window)
+local WinScale = create("UIScale", { Scale = 1 }, Window)
+
+local TopBar = create("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 46), Active = true }, Window)
+create("Frame", {
+	Position = UDim2.new(0, 12, 1, -1), Size = UDim2.new(1, -24, 0, 1),
+	BackgroundColor3 = THEME.Accent, BackgroundTransparency = 0.6, BorderSizePixel = 0,
+}, TopBar)
+makeCat(TopBar, 34, 1.3).Position = UDim2.fromOffset(12, 6)
+local Title = label(TopBar, {
+	Position = UDim2.fromOffset(56, 4), Size = UDim2.fromOffset(160, 24),
+	Font = Enum.Font.GothamBlack, TextSize = 22, Text = "NEXORA", TextColor3 = THEME.White,
+})
+create("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 70, 90)) }, Title)
+label(TopBar, {
+	Position = UDim2.fromOffset(57, 27), Size = UDim2.fromOffset(200, 14), Font = Enum.Font.GothamBold,
+	TextSize = 10, TextColor3 = THEME.AccentSoft, Text = "X EVADE  |  v" .. NX.Version,
+})
+local function topButton(text, x, color)
+	local b = create("TextButton", {
+		Position = UDim2.new(1, x, 0, 9), Size = UDim2.fromOffset(28, 28), BackgroundColor3 = color,
+		BorderSizePixel = 0, AutoButtonColor = false, Font = Enum.Font.GothamBold, Text = text,
+		TextSize = 14, TextColor3 = THEME.Text,
+	}, TopBar)
+	corner(b, 8)
+	b.MouseEnter:Connect(function() tween(b, 0.15, { BackgroundColor3 = THEME.AccentSoft }) end)
+	b.MouseLeave:Connect(function() tween(b, 0.15, { BackgroundColor3 = color }) end)
+	return b
+end
+local MinBtn, CloseBtn = topButton("–", -72, THEME.Off), topButton("X", -38, THEME.Accent)
+
+local Sidebar = create("Frame", {
+	Position = UDim2.fromOffset(8, 54), Size = UDim2.new(0, 150, 1, -62),
+	BackgroundColor3 = THEME.Panel, BorderSizePixel = 0,
+}, Window)
+corner(Sidebar, 12)
+stroke(Sidebar, THEME.Stroke, 1, 0.5)
+local SideList = create("ScrollingFrame", {
+	BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(6, 6),
+	Size = UDim2.new(1, -12, 1, -50), CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 0,
+}, Sidebar)
+create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, SideList)
+local Footer = create("Frame", {
+	Position = UDim2.new(0, 6, 1, -40), Size = UDim2.new(1, -12, 0, 34),
+	BackgroundColor3 = THEME.Row, BorderSizePixel = 0,
+}, Sidebar)
+corner(Footer, 10)
+label(Footer, {
+	Position = UDim2.fromOffset(10, 3), Size = UDim2.new(1, -16, 0, 16), Font = Enum.Font.GothamBold,
+	Text = LocalPlayer.DisplayName, TextTruncate = Enum.TextTruncate.AtEnd,
+})
+label(Footer, {
+	Position = UDim2.fromOffset(10, 18), Size = UDim2.new(1, -16, 0, 12), TextSize = 10,
+	TextColor3 = THEME.SubText, Text = "@" .. LocalPlayer.Name, TextTruncate = Enum.TextTruncate.AtEnd,
+})
+local Content = create("Frame", {
+	BackgroundTransparency = 1, Position = UDim2.fromOffset(166, 54),
+	Size = UDim2.new(1, -174, 1, -62), ClipsDescendants = true,
+}, Window)
+
+-- โลโก้แมวลอย
+local Logo = create("Frame", {
+	Name = "Logo", Position = DEFAULT_LOGO_POS, Size = UDim2.fromOffset(68, 68), BackgroundTransparency = 1,
+}, Gui)
+local LogoScale = create("UIScale", {}, Logo)
+local LogoHolder = create("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1) }, Logo)
+local LogoOrb = create("Frame", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(14, 14, 18), BorderSizePixel = 0,
+}, LogoHolder)
+corner(LogoOrb, 0.5)
+local LogoRing = stroke(LogoOrb, THEME.Accent, 2.5, 0.2)
+local logoCat = makeCat(LogoHolder, 48, 0)
+logoCat.AnchorPoint, logoCat.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.52)
+local LogoHit = create("TextButton", {
+	BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 20,
+}, Logo)
+
+local function applyScale()
+	local cam = Workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+	BaseScale = math.clamp(math.min(vp.X / (W + 60), vp.Y / (H + 60)), 0.5, 1.15) * UserScale
+	if WindowOpen then WinScale.Scale = BaseScale end
+	LogoScale.Scale = math.clamp(BaseScale, 0.75, 1.25)
+	ToastScale.Scale = math.clamp(BaseScale, 0.8, 1.2)
+end
+local function setWindow(open)
+	if open == WindowOpen then return end
+	WindowOpen = open
+	if open then
+		Window.Visible = true
+		WinScale.Scale = BaseScale * 0.85
+		Window.GroupTransparency = 1
+		tween(WinScale, 0.35, { Scale = BaseScale }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		tween(Window, 0.25, { GroupTransparency = 0 })
+	else
+		tween(WinScale, 0.2, { Scale = BaseScale * 0.85 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		tween(Window, 0.2, { GroupTransparency = 1 })
+		task.delay(0.22, function() if not WindowOpen then Window.Visible = false end end)
+	end
+end
+function NX.setUserScale(v) UserScale = v applyScale() end
+function NX.resetPositions() Window.Position = DEFAULT_WINDOW_POS Logo.Position = DEFAULT_LOGO_POS end
+NX.setWindow = setWindow
+NX.Window, NX.Logo = Window, Logo
+
+makeDraggable(TopBar, Window, function() return WinScale.Scale end)
+makeDraggable(LogoHit, Logo, function() return LogoScale.Scale end, function() setWindow(not WindowOpen) end)
+MinBtn.MouseButton1Click:Connect(function()
+	setWindow(false)
+	NX.notify(NX.L("minimized"))
+end)
+CloseBtn.MouseButton1Click:Connect(function()
+	setWindow(false)
+	task.delay(0.25, function() NX.Destroy() end)
+end)
+
+-- ═══════════ Pages / Tabs ═══════════
+local Pages, TabButtons, CurrentPage = {}, {}, nil
+
+function NX.switchPage(key)
+	if CurrentPage == key or not Pages[key] then return end
+	local old = CurrentPage
+	CurrentPage = key
+	for k, b in pairs(TabButtons) do b.setActive(k == key) end
+	if old and Pages[old] then
+		local o = Pages[old].Group
+		tween(o, 0.12, { GroupTransparency = 1 })
+		task.delay(0.13, function() if CurrentPage ~= old then o.Visible = false end end)
+	end
+	local n = Pages[key].Group
+	n.Visible = true
+	n.Position = UDim2.fromOffset(0, 16)
+	n.GroupTransparency = 1
+	tween(n, 0.28, { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) },
+		Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+end
+
+function NX.removePage(key)
+	local p = Pages[key]
+	if not p then return end
+	for i = #NX.Registry, 1, -1 do
+		local e = NX.Registry[i]
+		if e.owner == key then
+			if e.get() then pcall(e.set, false, true) end
+			table.remove(NX.Registry, i)
+		end
+	end
+	p.Group:Destroy()
+	TabButtons[key].btn:Destroy()
+	Pages[key], TabButtons[key] = nil, nil
+	if CurrentPage == key then CurrentPage = nil NX.switchPage("tab_home") end
+end
+
+function NX.addPage(key, order)
+	NX.removePage(key)
+	local group = create("CanvasGroup", {
+		BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, GroupTransparency = 1,
+	}, Content)
+	local scroll = create("ScrollingFrame", {
+		BackgroundTransparency = 1, BorderSizePixel = 0, Size = UDim2.fromScale(1, 1),
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 3, ScrollBarImageColor3 = THEME.Accent,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+	}, group)
+	scroll:SetAttribute("owner", key)
+	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, scroll)
+	create("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 10) }, scroll)
+	Pages[key] = { Group = group, Scroll = scroll }
+
+	local btn = create("TextButton", {
+		Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = THEME.AccentDark, BackgroundTransparency = 1,
+		Text = "", AutoButtonColor = false, LayoutOrder = order,
+	}, SideList)
+	corner(btn, 10)
+	local bar = create("Frame", {
+		Size = UDim2.fromOffset(4, 18), Position = UDim2.new(0, 7, 0.5, -9),
+		BackgroundColor3 = THEME.AccentSoft, BackgroundTransparency = 1, BorderSizePixel = 0,
+	}, btn)
+	corner(bar, 2)
+	local lb = label(btn, {
+		Position = UDim2.fromOffset(22, 0), Size = UDim2.new(1, -26, 1, 0), Font = Enum.Font.GothamMedium,
+		TextSize = 14, TextColor3 = THEME.SubText,
+	})
+	NX.bindText(lb, key)
+	TabButtons[key] = {
+		btn = btn,
+		setActive = function(on)
+			tween(btn, 0.2, { BackgroundTransparency = on and 0 or 1 })
+			tween(bar, 0.2, { BackgroundTransparency = on and 0 or 1 })
+			tween(lb, 0.2, { TextColor3 = on and THEME.Text or THEME.SubText })
+		end,
+	}
+	btn.MouseButton1Click:Connect(function() NX.switchPage(key) end)
+	return scroll
+end
+
+local function groupLabel(key, order)
+	local l = label(SideList, {
+		Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.GothamBold, TextSize = 11,
+		TextColor3 = THEME.Accent, LayoutOrder = order,
+	})
+	create("UIPadding", { PaddingLeft = UDim.new(0, 6) }, l)
+	NX.bindText(l, key)
+end
+groupLabel("grp_main", 1)   -- Home = 2
+groupLabel("grp_feat", 10)  -- ESP 11, Players 12, Auto 13
+groupLabel("grp_sys", 20)   -- Settings 21
+
+-- ═══════════ หน้าหลัก (Home) ═══════════
+local fpsVal, pingVal, plrVal, hpText, hpFill
+do
+	local s = NX.addPage("tab_home", 2)
+
+	-- แมพ: ปก + ชื่อ
+	local mapCard = NX.makeRow(s, 96, false)
+	local mapImg = create("ImageLabel", {
+		Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(120, 80), BackgroundColor3 = THEME.Off,
+		BorderSizePixel = 0, ScaleType = Enum.ScaleType.Crop,
+		Image = "rbxthumb://type=GameIcon&id=" .. tostring(game.GameId) .. "&w=256&h=256",
+	}, mapCard)
+	corner(mapImg, 10)
+	local mc = label(mapCard, {
+		Position = UDim2.fromOffset(140, 10), Size = UDim2.new(1, -150, 0, 14),
+		Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = THEME.AccentSoft,
+	})
+	NX.bindText(mc, "home_map")
+	local mapName = label(mapCard, {
+		Position = UDim2.fromOffset(140, 26), Size = UDim2.new(1, -150, 0, 40), Font = Enum.Font.GothamBold,
+		TextSize = 15, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, Text = game.Name,
+	})
+	label(mapCard, {
+		Position = UDim2.fromOffset(140, 72), Size = UDim2.new(1, -150, 0, 14), TextSize = 11,
+		TextColor3 = THEME.SubText, Text = "ID " .. tostring(game.PlaceId),
+	})
+	task.spawn(function()
+		local ok, info = pcall(function() return MarketplaceService:GetProductInfo(game.PlaceId) end)
+		if ok and type(info) == "table" then
+			if info.Name then mapName.Text = info.Name end
+			if info.IconImageAssetId and info.IconImageAssetId ~= 0 then
+				mapImg.Image = "rbxassetid://" .. tostring(info.IconImageAssetId)
+			end
+		end
+	end)
+
+	-- ตัวละคร: รูป + ชื่อ
+	local chCard = NX.makeRow(s, 80, false)
+	local avatar = create("ImageLabel", {
+		Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(60, 60),
+		BackgroundColor3 = THEME.Off, BorderSizePixel = 0,
+	}, chCard)
+	corner(avatar, 0.5)
+	stroke(avatar, THEME.Accent, 2, 0)
+	task.spawn(function()
+		local ok, content = pcall(function()
+			return Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+		end)
+		if ok and content then avatar.Image = content end
+	end)
+	local cc = label(chCard, {
+		Position = UDim2.fromOffset(82, 9), Size = UDim2.new(1, -92, 0, 14),
+		Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = THEME.AccentSoft,
+	})
+	NX.bindText(cc, "home_char")
+	label(chCard, {
+		Position = UDim2.fromOffset(82, 24), Size = UDim2.new(1, -92, 0, 22), Font = Enum.Font.GothamBold,
+		TextSize = 16, Text = LocalPlayer.DisplayName, TextTruncate = Enum.TextTruncate.AtEnd,
+	})
+	local sub = label(chCard, {
+		Position = UDim2.fromOffset(82, 48), Size = UDim2.new(1, -92, 0, 16), TextSize = 11,
+		TextColor3 = THEME.SubText, TextTruncate = Enum.TextTruncate.AtEnd,
+	})
+	local function refreshSub()
+		sub.Text = "@" .. LocalPlayer.Name .. "  |  " .. NX.L("home_age") .. ": "
+			.. LocalPlayer.AccountAge .. " " .. NX.L("home_days")
+	end
+	refreshSub()
+	NX.onLang(refreshSub)
+
+	-- FPS / PING / PLAYERS
+	local row = create("Frame", { Size = UDim2.new(1, 0, 0, 58), BackgroundTransparency = 1, LayoutOrder = nextOrder(s) }, s)
+	create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+	}, row)
+	local function mini(key, order)
+		local c = create("Frame", {
+			Size = UDim2.new(1 / 3, -6, 1, 0), BackgroundColor3 = THEME.Row, BorderSizePixel = 0, LayoutOrder = order,
+		}, row)
+		corner(c, 10)
+		stroke(c, THEME.Stroke, 1, 0.45)
+		local v = label(c, {
+			Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 24), Font = Enum.Font.GothamBold,
+			TextSize = 18, TextColor3 = THEME.AccentSoft, TextXAlignment = Enum.TextXAlignment.Center, Text = "--",
+		})
+		local k = label(c, {
+			Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 14), Font = Enum.Font.GothamBold,
+			TextSize = 10, TextColor3 = THEME.SubText, TextXAlignment = Enum.TextXAlignment.Center,
+		})
+		NX.bindText(k, key)
+		return v
+	end
+	fpsVal, pingVal, plrVal = mini("home_fps", 1), mini("home_ping", 2), mini("home_players", 3)
+
+	-- เลือด
+	local hpCard = NX.makeRow(s, 62, false)
+	local hk = label(hpCard, {
+		Position = UDim2.fromOffset(12, 8), Size = UDim2.new(0.5, 0, 0, 18),
+		Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = THEME.SubText,
+	})
+	NX.bindText(hk, "home_health")
+	hpText = label(hpCard, {
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 8), Size = UDim2.fromOffset(120, 18),
+		Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Right, Text = "-- / --",
+	})
+	local track_ = create("Frame", {
+		Position = UDim2.new(0, 12, 0, 36), Size = UDim2.new(1, -24, 0, 12),
+		BackgroundColor3 = THEME.Off, BorderSizePixel = 0,
+	}, hpCard)
+	corner(track_, 6)
+	hpFill = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(60, 220, 110), BorderSizePixel = 0 }, track_)
+	corner(hpFill, 6)
+
+	-- ภาษา
+	local lgCard = NX.makeRow(s, 56, false)
+	NX.rowTexts(lgCard, "home_lang", "home_lang_d", 190)
+	local seg = create("Frame", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(160, 30), BackgroundTransparency = 1,
+	}, lgCard)
+	local segs = {}
+	local function renderLang()
+		for code, b in pairs(segs) do
+			local on = NX.Lang == code
+			tween(b, 0.2, { BackgroundColor3 = on and THEME.Accent or THEME.Off })
+		end
+	end
+	for i, def in ipairs({ { "th", "ไทย" }, { "en", "English" } }) do
+		local b = create("TextButton", {
+			Position = UDim2.new(i == 1 and 0 or 0.5, i == 1 and 0 or 3, 0, 0), Size = UDim2.new(0.5, -3, 1, 0),
+			BackgroundColor3 = THEME.Off, BorderSizePixel = 0, AutoButtonColor = false,
+			Font = Enum.Font.GothamBold, Text = def[2], TextSize = 13, TextColor3 = THEME.Text,
+		}, seg)
+		corner(b, 8)
+		segs[def[1]] = b
+		b.MouseButton1Click:Connect(function()
+			NX.setLang(def[1])
+			NX.notify(NX.L("lang_changed"))
+		end)
+	end
+	NX.onLang(renderLang)
+	renderLang()
+end
+
+-- ═══════════ Runtime ═══════════
+local acc, frames, lastHp, lastMax = 0, 0, -1, -1
+NX.track(RunService.RenderStepped:Connect(function(dt)
+	local t = os.clock()
+	for _, anim in ipairs(CatAnimators) do anim(t) end
+	LogoHolder.Position = UDim2.fromOffset(0, math.sin(t * 2.2) * 3)
+	local pulse = 0.5 + 0.5 * math.sin(t * 3)
+	LogoRing.Transparency = 0.5 - 0.4 * pulse
+	LogoRing.Thickness = 2 + 1.5 * pulse
+
+	frames += 1
+	acc += dt
+	if acc >= 0.5 then
+		fpsVal.Text = tostring(math.floor(frames / acc + 0.5))
+		local ping = 0
+		pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue() + 0.5) end)
+		pingVal.Text = ping .. "ms"
+		plrVal.Text = #Players:GetPlayers() .. "/" .. Players.MaxPlayers
+		frames, acc = 0, 0
+	end
+
+	local h = getHum()
+	local hp = h and math.floor(h.Health + 0.5) or 0
+	local mhp = h and math.floor(h.MaxHealth + 0.5) or 0
+	if hp ~= lastHp or mhp ~= lastMax then
+		lastHp, lastMax = hp, mhp
+		local pct = (mhp > 0) and math.clamp(hp / mhp, 0, 1) or 0
+		hpText.Text = hp .. " / " .. mhp
+		tween(hpFill, 0.15, {
+			Size = UDim2.fromScale(pct, 1),
+			BackgroundColor3 = Color3.fromRGB(230, 50, 60):Lerp(Color3.fromRGB(60, 220, 110), pct),
+		})
+	end
+end))
+
+NX.track(UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == NX.ToggleKey then setWindow(not WindowOpen) end
+end))
+
+local function hookCamera()
+	local cam = Workspace.CurrentCamera
+	if cam then NX.track(cam:GetPropertyChangedSignal("ViewportSize"):Connect(applyScale)) end
+end
+hookCamera()
+NX.track(Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() hookCamera() applyScale() end))
+
+-- ═══════════ Destroy / Start ═══════════
+function NX.disableAll()
+	for _, e in ipairs(NX.Registry) do
+		if e.get() then pcall(e.set, false, true) end
+	end
+end
+local destroyed = false
+function NX.Destroy()
+	if destroyed then return end
+	destroyed = true
+	NX.disableAll()
+	for _, fn in ipairs(DestroyCbs) do pcall(fn) end
+	for k in pairs(Maid) do NX.unbind(k) end
+	for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
+	pcall(function() Gui:Destroy() end)
+	if ENV.NX_EVADE == NX then ENV.NX_EVADE = nil end
+end
+
+applyScale()
+NX.switchPage("tab_home")
+setWindow(true)
+NX.notify(NX.L("ready"))--[[ NEXORA X Evade | ก้อนที่ 2: ESP ]]
+local okEnv, genv = pcall(function() return getgenv() end)
+local ENV = (okEnv and genv) or _G
+local NX = ENV.NX_EVADE
+if not NX then warn("[NEXORA] กรุณารันก้อนที่ 1 (Core) ก่อน") return end
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local THEME, create = NX.THEME, NX.create
+
+NX.i18n({
+	tab_esp = { "ESP", "ESP" },
+	esp_sec_players = { "PLAYER ESP", "ESP ผู้เล่น" },
+	esp_players = { "ESP Players", "ESP ผู้เล่น" },
+	esp_players_d = { "Highlight other players through walls", "ไฮไลต์ผู้เล่นอื่นทะลุกำแพง" },
+	esp_sec_npc = { "BOTS / NPC", "บอท / NPC" },
+	esp_npc = { "ESP Bots / NPC", "ESP บอท / NPC" },
+	esp_npc_d = { "Highlight NPCs and nextbots", "ไฮไลต์ NPC และ Nextbot" },
+	esp_sec_opt = { "DISPLAY OPTIONS", "ตัวเลือกการแสดงผล" },
+	esp_name = { "Show Name", "แสดงชื่อ" }, esp_name_d = { "Name above the target", "ชื่อเหนือเป้าหมาย" },
+	esp_dist = { "Show Distance", "แสดงระยะ" }, esp_dist_d = { "Distance in studs", "ระยะห่างเป็นสตั๊ด" },
+	esp_hp = { "Show Health", "แสดงเลือด" }, esp_hp_d = { "Current health of the target", "เลือดปัจจุบันของเป้าหมาย" },
+	esp_range = { "Max Distance", "ระยะสูงสุด" },
+	esp_color = { "ESP Color", "สี ESP" }, esp_color_d = { "Color of player highlight", "สีไฮไลต์ผู้เล่น" },
+	btn_change = { "CHANGE", "เปลี่ยน" },
+	c_red = { "Red", "แดง" }, c_cyan = { "Cyan", "ฟ้า" }, c_green = { "Green", "เขียว" },
+	c_yellow = { "Yellow", "เหลือง" }, c_white = { "White", "ขาว" },
+})
+
+local COLORS = {
+	{ "c_red", Color3.fromRGB(225, 29, 46) }, { "c_cyan", Color3.fromRGB(40, 220, 255) },
+	{ "c_green", Color3.fromRGB(60, 230, 110) }, { "c_yellow", Color3.fromRGB(255, 215, 60) },
+	{ "c_white", Color3.fromRGB(255, 255, 255) },
+}
+local NPC_COLOR = Color3.fromRGB(255, 150, 40)
+local Opt = { Players = false, NPC = false, Name = true, Dist = true, HP = true, Range = 1500, ColorIdx = 1 }
+local Objs, Npcs = {}, {}   -- Objs[model] = {hl,bb,lbl,hum,head,name,isNpc}
+
+local function clear(model)
+	local o = Objs[model]
+	if o then
+		if o.hl then o.hl:Destroy() end
+		if o.bb then o.bb:Destroy() end
+		Objs[model] = nil
+	end
+end
+
+local function build(model, name, isNpc)
+	clear(model)
+	local head = model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+	if not head then return end
+	local hl = create("Highlight", {
+		Name = "NX_ESP", Adornee = model, FillColor = THEME.Accent, OutlineColor = THEME.White,
+		FillTransparency = 0.55, OutlineTransparency = 0, DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+	}, model)
+	local bb = create("BillboardGui", {
+		Name = "NX_TAG", Adornee = head, AlwaysOnTop = true,
+		Size = UDim2.fromOffset(190, 28), StudsOffset = Vector3.new(0, 2.8, 0),
+	}, head)
+	local lbl = create("TextLabel", {
+		BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBold,
+		TextSize = 13, TextColor3 = THEME.White, TextStrokeTransparency = 0.4, Text = name,
+	}, bb)
+	Objs[model] = {
+		hl = hl, bb = bb, lbl = lbl, head = head, name = name, isNpc = isNpc,
+		hum = model:FindFirstChildOfClass("Humanoid"),
+	}
+end
+
+local function scanNpc(inst)
+	if inst:IsA("Humanoid") then
+		local m = inst.Parent
+		if m and m:IsA("Model") and m ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(m) then
+			Npcs[m] = true
+		end
+	end
+end
+
+local function refresh()
+	for model, o in pairs(Objs) do
+		if not model.Parent or not o.hl.Parent
+			or (o.isNpc and not Opt.NPC) or (not o.isNpc and not Opt.Players) then
+			clear(model)
+		end
+	end
+	if Opt.Players then
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local ch = plr.Character
+			if plr ~= LocalPlayer and ch and not Objs[ch] then build(ch, plr.DisplayName, false) end
+		end
+	end
+	if Opt.NPC then
+		for m in pairs(Npcs) do
+			if not m.Parent then Npcs[m] = nil elseif not Objs[m] then build(m, m.Name, true) end
+		end
+	end
+end
+
+local function updateLabels()
+	local root = NX.getRoot()
+	for _, o in pairs(Objs) do
+		local d = (root and o.head and o.head.Parent) and (root.Position - o.head.Position).Magnitude or 0
+		local inRange = d <= Opt.Range
+		o.hl.Enabled, o.bb.Enabled = inRange, inRange
+		o.hl.FillColor = o.isNpc and NPC_COLOR or COLORS[Opt.ColorIdx][2]
+		if inRange then
+			local parts = {}
+			if Opt.Name then parts[#parts + 1] = o.name end
+			if Opt.HP and o.hum then parts[#parts + 1] = "HP " .. math.floor(o.hum.Health) end
+			if Opt.Dist then parts[#parts + 1] = math.floor(d) .. "m" end
+			o.lbl.Text = table.concat(parts, "  |  ")
+			o.lbl.Visible = #parts > 0
+		end
+	end
+end
+
+local t1, t2 = 1, 1
+local function syncLoop()
+	if Opt.Players or Opt.NPC then
+		t1, t2 = 1, 1
+		NX.bind("ESP_LOOP", RunService.Heartbeat, function(dt)
+			t1 += dt
+			t2 += dt
+			if t1 >= 1 then t1 = 0 refresh() end
+			if t2 >= 0.2 then t2 = 0 updateLabels() end
+		end)
+	else
+		NX.unbind("ESP_LOOP")
+		for m in pairs(Objs) do clear(m) end
+	end
+end
+
+-- ═══ UI ═══
+local s = NX.addPage("tab_esp", 11)
+
+NX.addSection(s, "esp_sec_players")
+NX.addToggle(s, "esp_players", "esp_players_d", function(on)
+	Opt.Players = on
+	syncLoop()
+end)
+NX.addSection(s, "esp_sec_npc")
+NX.addToggle(s, "esp_npc", "esp_npc_d", function(on)
+	Opt.NPC = on
+	if on then
+		for _, d in ipairs(Workspace:GetDescendants()) do scanNpc(d) end
+		NX.bind("ESP_NPC_ADD", Workspace.DescendantAdded, scanNpc)
+	else
+		NX.unbind("ESP_NPC_ADD")
+		table.clear(Npcs)
+	end
+	syncLoop()
+end)
+
+NX.addSection(s, "esp_sec_opt")
+local function opt(nameKey, descKey, field)
+	local set = NX.addToggle(s, nameKey, descKey, function(on) Opt[field] = on end, { noReset = true })
+	set(true, true)
+end
+opt("esp_name", "esp_name_d", "Name")
+opt("esp_dist", "esp_dist_d", "Dist")
+opt("esp_hp", "esp_hp_d", "HP")
+NX.addSlider(s, "esp_range", 100, 3000, 1500, 50, function(v) Opt.Range = v end, "m")
+NX.addButton(s, "esp_color", "esp_color_d", "btn_change", function()
+	Opt.ColorIdx = Opt.ColorIdx % #COLORS + 1
+	NX.notify(NX.L("esp_color") .. ": " .. NX.L(COLORS[Opt.ColorIdx][1]))
+end)--[[ NEXORA X Evade | ก้อนที่ 3: ผู้เล่น ]]
+local okEnv, genv = pcall(function() return getgenv() end)
+local ENV = (okEnv and genv) or _G
+local NX = ENV.NX_EVADE
+if not NX then warn("[NEXORA] กรุณารันก้อนที่ 1 (Core) ก่อน") return end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local THEME, State = NX.THEME, NX.State
+local create, corner, stroke = NX.create, NX.corner, NX.stroke
+local bind, unbind, getHum, getRoot = NX.bind, NX.unbind, NX.getHum, NX.getRoot
+
+NX.i18n({
+	tab_players = { "Players", "ผู้เล่น" },
+	pl_sec_move = { "MOVEMENT", "การเคลื่อนที่" },
+	pl_speed = { "WalkSpeed", "ความเร็วเดิน" }, pl_speed_d = { "Use the speed set below", "ใช้ความเร็วที่ตั้งไว้ด้านล่าง" },
+	pl_speed_v = { "Speed Value", "ค่าความเร็ว" },
+	pl_jump = { "JumpPower", "แรงกระโดด" }, pl_jump_d = { "Use the jump set below", "ใช้แรงกระโดดที่ตั้งไว้ด้านล่าง" },
+	pl_jump_v = { "Jump Value", "ค่าแรงกระโดด" },
+	pl_inf = { "Infinite Jump", "กระโดดไม่จำกัด" }, pl_inf_d = { "Jump again in mid-air", "กระโดดซ้ำกลางอากาศ" },
+	pl_fly = { "Fly", "บิน" },
+	pl_fly_d = { "Fly toward the camera (PC: Space up / Ctrl down)", "บินตามทิศกล้อง (PC: Space ขึ้น / Ctrl ลง)" },
+	pl_fly_v = { "Fly Speed", "ความเร็วบิน" },
+	pl_noclip = { "Noclip", "เดินทะลุ" }, pl_noclip_d = { "Walk through walls", "เดินทะลุกำแพง" },
+	pl_grav = { "Custom Gravity", "แรงโน้มถ่วงกำหนดเอง" }, pl_grav_d = { "Use the gravity set below", "ใช้ค่าที่ตั้งไว้ด้านล่าง" },
+	pl_grav_v = { "Gravity Value", "ค่าแรงโน้มถ่วง" },
+	pl_sec_list = { "PLAYER LIST", "รายชื่อผู้เล่น" },
+	pl_refresh = { "Refresh List", "รีเฟรชรายชื่อ" }, pl_refresh_d = { "Reload the player list", "โหลดรายชื่อผู้เล่นใหม่" },
+	btn_refresh = { "REFRESH", "รีเฟรช" },
+	pl_stopview = { "Stop Viewing", "หยุดดู" }, pl_stopview_d = { "Return the camera to yourself", "คืนกล้องกลับมาที่ตัวเอง" },
+	btn_stop = { "STOP", "หยุด" },
+	pl_none = { "No other players in this server", "ไม่มีผู้เล่นอื่นในเซิร์ฟเวอร์" },
+	btn_tp = { "TP", "วาร์ป" }, btn_view = { "VIEW", "ดู" },
+	pl_viewing = { "Viewing", "กำลังดู" }, pl_tped = { "Teleported to", "วาร์ปไปหา" },
+	pl_sec_self = { "CHARACTER", "ตัวละคร" },
+	pl_reset = { "Reset Character", "รีเซ็ตตัวละคร" }, pl_reset_d = { "Respawn your character", "เกิดใหม่" },
+	btn_reset = { "RESET", "รีเซ็ต" },
+})
+
+State.Speed, State.Jump, State.FlySpeed, State.Gravity = 32, 80, 60, 120
+local Orig = {}
+
+-- ═══ Features ═══
+local function walkSpeed(on)
+	if on then
+		local h = getHum()
+		if h and Orig.Speed == nil then Orig.Speed = h.WalkSpeed end
+		bind("PL_SPEED", RunService.Heartbeat, function()
+			local hum = getHum()
+			if hum then hum.WalkSpeed = State.Speed end
+		end)
+	else
+		unbind("PL_SPEED")
+		local h = getHum()
+		if h and Orig.Speed then h.WalkSpeed = Orig.Speed end
+		Orig.Speed = nil
+	end
+end
+
+local function jumpPower(on)
+	if on then
+		local h = getHum()
+		if h and Orig.Jump == nil then Orig.Jump, Orig.UseJP = h.JumpPower, h.UseJumpPower end
+		bind("PL_JUMP", RunService.Heartbeat, function()
+			local hum = getHum()
+			if hum then hum.UseJumpPower = true hum.JumpPower = State.Jump end
+		end)
+	else
+		unbind("PL_JUMP")
+		local h = getHum()
+		if h and Orig.Jump ~= nil then h.UseJumpPower, h.JumpPower = Orig.UseJP, Orig.Jump end
+		Orig.Jump, Orig.UseJP = nil, nil
+	end
+end
+
+local function infJump(on)
+	if on then
+		bind("PL_INF", UserInputService.JumpRequest, function()
+			local h = getHum()
+			if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+		end)
+	else
+		unbind("PL_INF")
+	end
+end
+
+local function noclip(on)
+	if on then
+		bind("PL_NOCLIP", RunService.Stepped, function()
+			local c = LocalPlayer.Character
+			if not c then return end
+			for _, p in ipairs(c:GetDescendants()) do
+				if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+			end
+		end)
+	else
+		unbind("PL_NOCLIP")
+	end
+end
+
+local Fly = {}
+local function clearFly()
+	if Fly.BV then Fly.BV:Destroy() Fly.BV = nil end
+	if Fly.BG then Fly.BG:Destroy() Fly.BG = nil end
+end
+local function fly(on)
+	if on then
+		bind("PL_FLY", RunService.Heartbeat, function()
+			local hum, root, cam = getHum(), getRoot(), Workspace.CurrentCamera
+			if not hum or not root or not cam then return end
+			if not Fly.BV or Fly.BV.Parent ~= root then
+				clearFly()
+				Fly.BV = create("BodyVelocity", { MaxForce = Vector3.new(1e9, 1e9, 1e9), Velocity = Vector3.zero }, root)
+				Fly.BG = create("BodyGyro", { MaxTorque = Vector3.new(1e9, 1e9, 1e9), P = 9e4, CFrame = root.CFrame }, root)
+			end
+			hum.PlatformStand = true
+			local vel, move = Vector3.zero, hum.MoveDirection
+			if move.Magnitude > 0 then
+				local cf = cam.CFrame
+				local rel = cf:VectorToObjectSpace(move)
+				local dir = cf.RightVector * rel.X - cf.LookVector * rel.Z
+				if dir.Magnitude > 0 then vel = dir.Unit * State.FlySpeed end
+			end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vel += Vector3.new(0, State.FlySpeed, 0) end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vel -= Vector3.new(0, State.FlySpeed, 0) end
+			Fly.BV.Velocity = vel
+			local look = cam.CFrame.LookVector
+			local flat = Vector3.new(look.X, 0, look.Z)
+			if flat.Magnitude > 0.01 then
+				Fly.BG.CFrame = CFrame.lookAt(root.Position, root.Position + flat)
+			end
+		end)
+	else
+		unbind("PL_FLY")
+		clearFly()
+		local h = getHum()
+		if h then h.PlatformStand = false end
+	end
+end
+
+local function gravity(on)
+	if on then
+		if not Orig.Grav then Orig.Grav = Workspace.Gravity end
+		bind("PL_GRAV", RunService.Heartbeat, function() Workspace.Gravity = State.Gravity end)
+	else
+		unbind("PL_GRAV")
+		if Orig.Grav then Workspace.Gravity = Orig.Grav end
+		Orig.Grav = nil
+	end
+end
+
+-- ═══ Player list actions ═══
+local function tpTo(plr)
+	local mine = getRoot()
+	local theirs = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+	if mine and theirs then
+		mine.CFrame = theirs.CFrame * CFrame.new(0, 0, 3)
+		NX.notify(NX.L("pl_tped") .. " " .. plr.DisplayName)
+	end
+end
+local function spectate(plr)
+	local cam = Workspace.CurrentCamera
+	local h = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+	if cam and h then
+		cam.CameraSubject = h
+		NX.notify(NX.L("pl_viewing") .. " " .. plr.DisplayName)
+	end
+end
+local function stopSpectate()
+	local cam, h = Workspace.CurrentCamera, getHum()
+	if cam and h then cam.CameraSubject = h end
+end
+NX.onDestroy(stopSpectate)
+
+-- ═══ UI ═══
+local s = NX.addPage("tab_players", 12)
+
+NX.addSection(s, "pl_sec_move")
+NX.addToggle(s, "pl_speed", "pl_speed_d", walkSpeed)
+NX.addSlider(s, "pl_speed_v", 16, 150, State.Speed, 1, function(v) State.Speed = v end)
+NX.addToggle(s, "pl_jump", "pl_jump_d", jumpPower)
+NX.addSlider(s, "pl_jump_v", 50, 250, State.Jump, 1, function(v) State.Jump = v end)
+NX.addToggle(s, "pl_inf", "pl_inf_d", infJump)
+NX.addToggle(s, "pl_fly", "pl_fly_d", fly)
+NX.addSlider(s, "pl_fly_v", 20, 200, State.FlySpeed, 1, function(v) State.FlySpeed = v end)
+NX.addToggle(s, "pl_noclip", "pl_noclip_d", noclip)
+NX.addToggle(s, "pl_grav", "pl_grav_d", gravity)
+NX.addSlider(s, "pl_grav_v", 20, 300, State.Gravity, 1, function(v) State.Gravity = v end)
+
+NX.addSection(s, "pl_sec_self")
+NX.addButton(s, "pl_reset", "pl_reset_d", "btn_reset", function()
+	local h = getHum()
+	if h then h.Health = 0 end
+end)
+
+NX.addSection(s, "pl_sec_list")
+local ListHolder -- ประกาศก่อนเพื่อให้ refreshList เรียกใช้ได้
+
+local function refreshList()
+	if not ListHolder or not ListHolder.Parent then return end
+	for _, c in ipairs(ListHolder:GetChildren()) do
+		if c:IsA("GuiObject") then c:Destroy() end
+	end
+	local n = 0
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			n += 1
+			local row = create("Frame", {
+				Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = THEME.Row, BorderSizePixel = 0, LayoutOrder = n,
+			}, ListHolder)
+			corner(row, 10)
+			stroke(row, THEME.Stroke, 1, 0.45)
+			NX.label(row, {
+				Position = UDim2.fromOffset(12, 5), Size = UDim2.new(1, -170, 0, 18), Font = Enum.Font.GothamBold,
+				TextSize = 13, Text = plr.DisplayName, TextTruncate = Enum.TextTruncate.AtEnd,
+			})
+			NX.label(row, {
+				Position = UDim2.fromOffset(12, 24), Size = UDim2.new(1, -170, 0, 14), TextSize = 10,
+				TextColor3 = THEME.SubText, Text = "@" .. plr.Name, TextTruncate = Enum.TextTruncate.AtEnd,
+			})
+			local function mini(x, key, cb)
+				local b = create("TextButton", {
+					AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, x, 0.5, 0),
+					Size = UDim2.fromOffset(64, 26), BackgroundColor3 = THEME.AccentDark, BorderSizePixel = 0,
+					AutoButtonColor = false, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = THEME.Text,
+				}, row)
+				NX.bindText(b, key)
+				corner(b, 8)
+				b.MouseButton1Click:Connect(function() pcall(cb, plr) end)
+			end
+			mini(-80, "btn_tp", tpTo)
+			mini(-10, "btn_view", spectate)
+		end
+	end
+	if n == 0 then
+		local row = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = THEME.Row, BorderSizePixel = 0,
+		}, ListHolder)
+		corner(row, 10)
+		local l = NX.label(row, {
+			Size = UDim2.fromScale(1, 1), TextColor3 = THEME.SubText, TextXAlignment = Enum.TextXAlignment.Center,
+		})
+		NX.bindText(l, "pl_none")
+	end
+end
+
+NX.addButton(s, "pl_refresh", "pl_refresh_d", "btn_refresh", refreshList)
+NX.addButton(s, "pl_stopview", "pl_stopview_d", "btn_stop", stopSpectate)
+
+ListHolder = create("Frame", {
+	BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+	LayoutOrder = NX.nextOrder(s),
+}, s)
+create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, ListHolder)
+
+bind("PL_ADD", Players.PlayerAdded, function() task.delay(0.3, refreshList) end)
+bind("PL_REM", Players.PlayerRemoving, function() task.delay(0.3, refreshList) end)
+refreshList()--[[ NEXORA X Evade | ก้อนที่ 4: ออโต้ ]]
+local okEnv, genv = pcall(function() return getgenv() end)
+local ENV = (okEnv and genv) or _G
+local NX = ENV.NX_EVADE
+if not NX then warn("[NEXORA] กรุณารันก้อนที่ 1 (Core) ก่อน") return end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+local VirtualUser = game:GetService("VirtualUser")
+local LocalPlayer = Players.LocalPlayer
+local State, bind, unbind, getHum = NX.State, NX.bind, NX.unbind, NX.getHum
+
+NX.i18n({
+	tab_auto = { "Auto", "ออโต้" },
+	au_sec = { "AUTOMATION", "ระบบออโต้" },
+	au_afk = { "Anti-AFK", "กันหลุดเมื่อไม่ขยับ" }, au_afk_d = { "Prevent the idle kick", "กันถูกเตะเพราะไม่ขยับ" },
+	au_jump = { "Auto Jump", "กระโดดอัตโนมัติ" }, au_jump_d = { "Jump repeatedly on a timer", "กระโดดซ้ำตามเวลาที่ตั้ง" },
+	au_jump_v = { "Jump Interval", "ช่วงเวลากระโดด" },
+	au_click = { "Auto Click", "คลิกอัตโนมัติ" }, au_click_d = { "Click repeatedly on a timer", "คลิกซ้ำตามเวลาที่ตั้ง" },
+	au_click_v = { "Click Interval", "ช่วงเวลาคลิก" },
+	au_rejoin = { "Auto Rejoin", "เข้าเกมใหม่อัตโนมัติ" }, au_rejoin_d = { "Rejoin when disconnected", "เข้าเซิร์ฟเวอร์ใหม่เมื่อหลุด" },
+	au_rejoining = { "Disconnected - rejoining...", "หลุดจากเกม - กำลังเข้าใหม่..." },
+})
+
+State.JumpInterval, State.ClickInterval = 1.5, 0.5
+
+local function antiAfk(on)
+	if on then
+		bind("AU_AFK", LocalPlayer.Idled, function()
+			pcall(function()
+				VirtualUser:CaptureController()
+				VirtualUser:ClickButton2(Vector2.new())
+			end)
+		end)
+	else
+		unbind("AU_AFK")
+	end
+end
+
+local jumpT = 0
+local function autoJump(on)
+	if on then
+		jumpT = 0
+		bind("AU_JUMP", RunService.Heartbeat, function(dt)
+			jumpT += dt
+			if jumpT >= State.JumpInterval then
+				jumpT = 0
+				local h = getHum()
+				if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+			end
+		end)
+	else
+		unbind("AU_JUMP")
+	end
+end
+
+local clickT = 0
+local function autoClick(on)
+	if on then
+		clickT = 0
+		bind("AU_CLICK", RunService.Heartbeat, function(dt)
+			clickT += dt
+			if clickT >= State.ClickInterval then
+				clickT = 0
+				pcall(function()
+					VirtualUser:CaptureController()
+					VirtualUser:ClickButton1(Vector2.new(0, 0))
+				end)
+			end
+		end)
+	else
+		unbind("AU_CLICK")
+	end
+end
+
+local rejoining = false
+local function autoRejoin(on)
+	if on then
+		bind("AU_REJOIN", GuiService.ErrorMessageChanged, function()
+			if rejoining then return end
+			rejoining = true
+			NX.notify(NX.L("au_rejoining"))
+			task.delay(2, function()
+				pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
+				task.delay(8, function() rejoining = false end)
+			end)
+		end)
+	else
+		unbind("AU_REJOIN")
+	end
+end
+
+local s = NX.addPage("tab_auto", 13)
+NX.addSection(s, "au_sec")
+NX.addToggle(s, "au_afk", "au_afk_d", antiAfk)
+NX.addToggle(s, "au_jump", "au_jump_d", autoJump)
+NX.addSlider(s, "au_jump_v", 0.5, 5, State.JumpInterval, 0.1, function(v) State.JumpInterval = v end, "s")
+NX.addToggle(s, "au_click", "au_click_d", autoClick)
+NX.addSlider(s, "au_click_v", 0.05, 2, State.ClickInterval, 0.05, function(v) State.ClickInterval = v end, "s")
+NX.addToggle(s, "au_rejoin", "au_rejoin_d", autoRejoin)--[[ NEXORA X Evade | ก้อนที่ 5: ตั้งค่า ]]
+local okEnv, genv = pcall(function() return getgenv() end)
+local ENV = (okEnv and genv) or _G
+local NX = ENV.NX_EVADE
+if not NX then warn("[NEXORA] กรุณารันก้อนที่ 1 (Core) ก่อน") return end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Stats = game:GetService("Stats")
+local TeleportService = game:GetService("TeleportService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local THEME, State = NX.THEME, NX.State
+local bind, unbind = NX.bind, NX.unbind
+
+NX.i18n({
+	tab_settings = { "Settings", "ตั้งค่า" },
+	st_sec_ui = { "INTERFACE", "หน้าตา" },
+	st_scale = { "GUI Scale", "ขนาดเมนู" },
+	st_notify = { "Notifications", "การแจ้งเตือน" }, st_notify_d = { "Show a message when toggling", "แสดงข้อความเมื่อกดปุ่ม" },
+	st_sec_gfx = { "GRAPHICS", "กราฟิก" },
+	st_full = { "Fullbright", "สว่างทั้งแมพ" }, st_full_d = { "Remove dark shadows", "ลบเงามืด" },
+	st_fog = { "No Fog", "ไม่มีหมอก" }, st_fog_d = { "Remove fog and haze", "ลบหมอกและฝ้า" },
+	st_fov = { "Custom FOV", "มุมกล้องกำหนดเอง" }, st_fov_d = { "Use the FOV set below", "ใช้ค่าที่ตั้งไว้ด้านล่าง" },
+	st_fov_v = { "FOV Value", "ค่ามุมกล้อง" },
+	st_boost = { "FPS Boost", "เพิ่ม FPS" }, st_boost_d = { "Lower shadows, particles and quality", "ลดเงา พาร์ติเคิล และคุณภาพ" },
+	st_fps = { "FPS Counter", "ตัวนับ FPS" }, st_fps_d = { "Show FPS and ping on screen", "แสดง FPS และปิงบนจอ" },
+	st_sec_manage = { "MANAGE", "จัดการ" },
+	st_rejoin = { "Rejoin", "เข้าเซิร์ฟเวอร์ใหม่" }, st_rejoin_d = { "Rejoin this server", "กลับเข้าเซิร์ฟเวอร์นี้อีกครั้ง" },
+	btn_rejoin = { "REJOIN", "เข้าใหม่" }, rejoining = { "Rejoining...", "กำลังเข้าใหม่..." },
+	st_pos = { "Reset Positions", "รีเซ็ตตำแหน่ง" }, st_pos_d = { "Restore menu and logo position", "คืนตำแหน่งเมนูและโลโก้" },
+	st_pos_done = { "Positions reset", "รีเซ็ตตำแหน่งแล้ว" },
+	st_dis = { "Disable All", "ปิดทั้งหมด" }, st_dis_d = { "Turn off every active feature", "ปิดทุกฟังก์ชันที่เปิดอยู่" },
+	btn_disable = { "DISABLE", "ปิด" },
+	st_des = { "Destroy GUI", "ลบ GUI" }, st_des_d = { "Disable all and remove the menu", "ปิดทุกอย่างและลบเมนู" },
+	btn_destroy = { "DESTROY", "ลบ" },
+	st_sec_about = { "ABOUT", "เกี่ยวกับ" },
+	st_about = {
+		"<b>NEXORA X Evade</b>  v2.0\nAll features run client-side on your own character.\n\n<b>PC:</b> press RightShift to open/close.\n<b>Mobile:</b> tap the cat logo to open/close, drag to move.\n<b>Language:</b> change it on the Home page.",
+		"<b>NEXORA X Evade</b>  v2.0\nทุกฟังก์ชันทำงานฝั่งผู้เล่น (Client) กับตัวละครของคุณเอง\n\n<b>PC:</b> กด RightShift เพื่อเปิด/ปิดเมนู\n<b>มือถือ:</b> แตะโลโก้แมวเพื่อเปิด/ปิด ลากเพื่อย้ายตำแหน่ง\n<b>ภาษา:</b> เปลี่ยนได้ที่หน้าหลัก",
+	},
+})
+
+State.FOV = 90
+local Orig = {}
+
+-- ═══ FPS overlay ═══
+local FpsLabel = NX.label(NX.Gui, {
+	BackgroundTransparency = 0.25, BackgroundColor3 = THEME.Bg, Position = UDim2.fromOffset(10, 10),
+	Size = UDim2.fromOffset(170, 24), Font = Enum.Font.GothamBold, Text = "FPS --  |  PING -- ms",
+	TextXAlignment = Enum.TextXAlignment.Center, Visible = false, ZIndex = 50,
+})
+NX.corner(FpsLabel, 8)
+NX.stroke(FpsLabel, THEME.Accent, 1, 0.4)
+
+local frames, acc = 0, 0
+local function fpsCounter(on)
+	FpsLabel.Visible = on
+	if on then
+		frames, acc = 0, 0
+		bind("ST_FPS", RunService.RenderStepped, function(dt)
+			frames += 1
+			acc += dt
+			if acc >= 0.5 then
+				local ping = 0
+				pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue() + 0.5) end)
+				FpsLabel.Text = string.format("FPS %d  |  PING %d ms", math.floor(frames / acc + 0.5), ping)
+				frames, acc = 0, 0
+			end
+		end)
+	else
+		unbind("ST_FPS")
+	end
+end
+NX.onDestroy(function() FpsLabel:Destroy() end)
+
+-- ═══ Graphics ═══
+local function fullbright(on)
+	if on then
+		if not Orig.Light then
+			Orig.Light = {
+				Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, GlobalShadows = Lighting.GlobalShadows,
+				Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+			}
+		end
+		bind("ST_FULL", RunService.RenderStepped, function()
+			Lighting.Brightness, Lighting.ClockTime, Lighting.GlobalShadows = 2, 14, false
+			Lighting.Ambient = Color3.fromRGB(190, 190, 190)
+			Lighting.OutdoorAmbient = Color3.fromRGB(190, 190, 190)
+		end)
+	else
+		unbind("ST_FULL")
+		if Orig.Light then
+			for k, v in pairs(Orig.Light) do Lighting[k] = v end
+			Orig.Light = nil
+		end
+	end
+end
+
+local function noFog(on)
+	if on then
+		if not Orig.Fog then
+			Orig.Fog = { FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart, Atmos = {} }
+			for _, a in ipairs(Lighting:GetChildren()) do
+				if a:IsA("Atmosphere") then Orig.Fog.Atmos[a] = { Density = a.Density, Haze = a.Haze } end
+			end
+		end
+		bind("ST_FOG", RunService.RenderStepped, function()
+			Lighting.FogEnd, Lighting.FogStart = 1e6, 1e5
+			for _, a in ipairs(Lighting:GetChildren()) do
+				if a:IsA("Atmosphere") then a.Density, a.Haze = 0, 0 end
+			end
+		end)
+	else
+		unbind("ST_FOG")
+		if Orig.Fog then
+			Lighting.FogEnd, Lighting.FogStart = Orig.Fog.FogEnd, Orig.Fog.FogStart
+			for a, v in pairs(Orig.Fog.Atmos) do
+				if a.Parent then a.Density, a.Haze = v.Density, v.Haze end
+			end
+			Orig.Fog = nil
+		end
+	end
+end
+
+local function customFov(on)
+	if on then
+		local cam = Workspace.CurrentCamera
+		if cam and not Orig.FOV then Orig.FOV = cam.FieldOfView end
+		bind("ST_FOV", RunService.RenderStepped, function()
+			local c = Workspace.CurrentCamera
+			if c then c.FieldOfView = State.FOV end
+		end)
+	else
+		unbind("ST_FOV")
+		local cam = Workspace.CurrentCamera
+		if cam and Orig.FOV then cam.FieldOfView = Orig.FOV end
+		Orig.FOV = nil
+	end
+end
+
+local Boost = { Changed = {} }
+local function fpsBoost(on)
+	if on then
+		Boost.Shadows = Lighting.GlobalShadows
+		Lighting.GlobalShadows = false
+		pcall(function()
+			Boost.Quality = settings().Rendering.QualityLevel
+			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+		end)
+		for _, d in ipairs(Workspace:GetDescendants()) do
+			if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Smoke") or d:IsA("Fire") or d:IsA("Sparkles") then
+				if d.Enabled then
+					Boost.Changed[#Boost.Changed + 1] = d
+					d.Enabled = false
+				end
+			end
+		end
+	else
+		if Boost.Shadows ~= nil then Lighting.GlobalShadows = Boost.Shadows end
+		pcall(function() if Boost.Quality then settings().Rendering.QualityLevel = Boost.Quality end end)
+		for _, d in ipairs(Boost.Changed) do
+			if d.Parent then d.Enabled = true end
+		end
+		table.clear(Boost.Changed)
+		Boost.Shadows, Boost.Quality = nil, nil
+	end
+end
+
+-- ═══ UI ═══
+local s = NX.addPage("tab_settings", 21)
+
+NX.addSection(s, "st_sec_ui")
+NX.addSlider(s, "st_scale", 70, 130, 100, 5, function(v) NX.setUserScale(v / 100) end, "%")
+local setNotify = NX.addToggle(s, "st_notify", "st_notify_d", function(v) NX.Settings.Notify = v end, { noReset = true })
+setNotify(true, true)
+
+NX.addSection(s, "st_sec_gfx")
+NX.addToggle(s, "st_full", "st_full_d", fullbright)
+NX.addToggle(s, "st_fog", "st_fog_d", noFog)
+NX.addToggle(s, "st_fov", "st_fov_d", customFov)
+NX.addSlider(s, "st_fov_v", 40, 120, State.FOV, 1, function(v) State.FOV = v end)
+NX.addToggle(s, "st_boost", "st_boost_d", fpsBoost)
+NX.addToggle(s, "st_fps", "st_fps_d", fpsCounter)
+
+NX.addSection(s, "st_sec_manage")
+NX.addButton(s, "st_rejoin", "st_rejoin_d", "btn_rejoin", function()
+	NX.notify(NX.L("rejoining"))
+	if #Players:GetPlayers() <= 1 then
+		TeleportService:Teleport(game.PlaceId, LocalPlayer)
+	else
+		TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+	end
+end)
+NX.addButton(s, "st_pos", "st_pos_d", "btn_reset", function()
+	NX.resetPositions()
+	NX.notify(NX.L("st_pos_done"))
+end)
+NX.addButton(s, "st_dis", "st_dis_d", "btn_disable", function()
+	NX.disableAll()
+	NX.notify(NX.L("all_off"))
+end)
+NX.addButton(s, "st_des", "st_des_d", "btn_destroy", function() NX.Destroy() end, true)
+
+NX.addSection(s, "st_sec_about")
+NX.addLabel(s, "st_about")
